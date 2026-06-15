@@ -11,6 +11,8 @@
 #include "ui/widget.h"
 #include "ui/status_bar.h"
 #include "ui/page_home.h"
+#include "ui/page_bookshelf.h"
+#include "ui/page_reader.h"
 
 static const char *TAG = "main";
 
@@ -51,6 +53,8 @@ void app_main(void)
 
     /* 注册页面 */
     page_mgr_register(&page_home_vtbl);
+    page_mgr_register(&page_bookshelf_vtbl);
+    page_mgr_register(&page_reader_vtbl);
 
     /* 初始化按键：把事件转给 page_mgr */
     keys_init(page_mgr_handle_key);
