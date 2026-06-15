@@ -9,6 +9,7 @@ idf_component_register(
          "hal/sd_card.c"
          "ui/page_mgr.c"
          "ui/widget.c"
+         "ui/status_bar.c"
     INCLUDE_DIRS "."
-    REQUIRES driver esp_wifi esp_netif nvs_flash
+    REQUIRES driver esp_wifi esp_netif nvs_flash esp_timer
 )
