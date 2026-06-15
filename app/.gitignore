@@ -1,2 +1,6 @@
 app/reader_sim
 app/*.o
+app/reader_sim
+app/*.o
+app/shared/**/*.o
+app/progress/
