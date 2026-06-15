@@ -49,24 +49,56 @@ static void IRAM_ATTR gpio_isr_handler(void *arg)
     }
 }
 
+/* 检测组合键（PREV + NEXT 同时按下） */
+static bool combo_detected = false;
+static uint32_t combo_time = 0;
+
 static void key_scan_task(void *arg)
 {
     while (1) {
         uint32_t now = xTaskGetTickCount();
-        
+
+        /* 检测组合键：PREV + NEXT 同时按下 */
+        bool prev_pressed = keys[KEY_PREV].pressed;
+        bool next_pressed = keys[KEY_NEXT].pressed;
+
+        if (prev_pressed && next_pressed && !combo_detected) {
+            /* 两个键都在按下状态，且之前未触发组合键 */
+            uint32_t prev_dur = (now - keys[KEY_PREV].press_start) * portTICK_PERIOD_MS;
+            uint32_t next_dur = (now - keys[KEY_NEXT].press_start) * portTICK_PERIOD_MS;
+
+            if (prev_dur >= DEBOUNCE_MS && next_dur >= DEBOUNCE_MS) {
+                combo_detected = true;
+                combo_time = now;
+                if (callback) {
+                    callback(KEY_PREV, KEY_EVT_COMBO);
+                }
+                /* 标记两个键已处理，避免单独触发 */
+                keys[KEY_PREV].press_start = 0;
+                keys[KEY_NEXT].press_start = 0;
+                keys[KEY_PREV].pressed = false;
+                keys[KEY_NEXT].pressed = false;
+            }
+        }
+
+        if (!prev_pressed && !next_pressed) {
+            combo_detected = false;
+        }
+
+        /* 单键处理 */
         for (int i = 0; i < KEY_COUNT; i++) {
             key_state_t *k = &keys[i];
-            
+
             if (k->pressed) {
                 uint32_t duration = (now - k->press_start) * portTICK_PERIOD_MS;
-                
+
                 if (!k->long_triggered && duration >= LONG_PRESS_MS) {
                     k->long_triggered = true;
                     if (callback) {
                         callback(k->id, KEY_EVT_LONG);
                     }
                 }
-                
+
                 if (duration >= SUPER_LONG_MS && k->id == KEY_PWR) {
                     if (callback) {
                         callback(k->id, KEY_EVT_SUPER_LONG);
@@ -76,18 +108,18 @@ static void key_scan_task(void *arg)
             } else {
                 if (k->press_start > 0) {
                     uint32_t duration = (now - k->press_start) * portTICK_PERIOD_MS;
-                    
+
                     if (duration >= DEBOUNCE_MS && duration < SHORT_PRESS_MS) {
                         if (callback) {
                             callback(k->id, KEY_EVT_SHORT);
                         }
                     }
-                    
+
                     k->press_start = 0;
                 }
             }
         }
-        
+
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }

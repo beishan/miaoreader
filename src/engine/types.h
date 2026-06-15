@@ -43,6 +43,8 @@ typedef enum {
     PAGE_READER,
     PAGE_SETTINGS,
     PAGE_SLEEP,
+    PAGE_MENU,      // 阅读上下文菜单
+    PAGE_JUMP,      // 跳转页码
 } PageId;
 
 // 按键事件

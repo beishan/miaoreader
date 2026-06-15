@@ -25,6 +25,9 @@
 #include "ui/page_settings.h"
 #include "ui/page_sleep.h"
 #include "ui/page_boot.h"
+#include "ui/page_menu.h"
+#include "ui/page_jump.h"
+#include "engine/bookmark.h"
 
 static const char *TAG = "main";
 
@@ -83,7 +86,25 @@ static void wifi_connect_task(void *arg)
     vTaskDelete(NULL);
 }
 
-/* 按键事件处理：重置空闲计时器 */
+/* 按键分发：组合键处理 + 页面按键 */
+static void main_key_handler(KeyId key, KeyEvent event)
+{
+    /* 组合键：PREV + NEXT → 全刷清洁 */
+    if (event == KEY_EVT_COMBO) {
+        ESP_LOGI(TAG, "组合键触发：全刷清洁");
+        epd_clear(EPD_COLOR_BLACK);
+        epd_display_full();
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        epd_clear(EPD_COLOR_WHITE);
+        epd_display_full();
+        return;
+    }
+
+    /* 其他按键：分发给当前页面 */
+    page_mgr_handle_key(key, event);
+}
+
+/* 事件总线处理：重置空闲计时器 */
 static void key_event_handler(EventType type, void *data)
 {
     if (type == EVT_KEY) {
@@ -135,6 +156,9 @@ void app_main(void)
     /* OTA 初始化 */
     ESP_ERROR_CHECK(ota_init());
 
+    /* 书签初始化 */
+    ESP_ERROR_CHECK(bookmark_init());
+
     /* 电源管理器初始化 */
     ESP_ERROR_CHECK(power_mgr_init());
 
@@ -145,9 +169,11 @@ void app_main(void)
     page_mgr_register(&page_reader_vtbl);
     page_mgr_register(&page_settings_vtbl);
     page_mgr_register(&page_sleep_vtbl);
+    page_mgr_register(&page_menu_vtbl);
+    page_mgr_register(&page_jump_vtbl);
 
-    /* 初始化按键：把事件转给 page_mgr */
-    keys_init(page_mgr_handle_key);
+    /* 初始化按键：组合键处理 + 页面分发 */
+    keys_init(main_key_handler);
 
     /* 订阅按键事件，重置空闲计时器 */
     event_bus_subscribe(EVT_KEY, key_event_handler);

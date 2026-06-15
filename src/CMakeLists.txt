@@ -5,6 +5,7 @@ idf_component_register(
          "engine/typesetter.c"
          "engine/book_parser.c"
          "engine/power_mgr.c"
+         "engine/bookmark.c"
          "hal/epd.c"
          "hal/keys.c"
          "hal/battery.c"
@@ -24,6 +25,8 @@ idf_component_register(
          "ui/page_settings.c"
          "ui/page_sleep.c"
          "ui/page_boot.c"
+         "ui/page_menu.c"
+         "ui/page_jump.c"
     INCLUDE_DIRS "."
     REQUIRES driver esp_wifi esp_netif nvs_flash esp_timer freetype espressif__cjson esp_http_server esp_http_client esp_event app_update
 )

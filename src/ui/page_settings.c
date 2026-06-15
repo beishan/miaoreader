@@ -6,10 +6,13 @@
 #include "ui/widget.h"
 #include "ui/status_bar.h"
 #include "ui/page_mgr.h"
+#include "hal/epd.h"
 #include "engine/config.h"
 #include "engine/types.h"
 #include "engine/typesetter.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -96,12 +99,18 @@ static void render_reading_menu(void)
     }
 }
 
+/* 系统设置菜单项数量 */
+#define SYSTEM_MENU_COUNT 7
+
 static void render_system_menu(void)
 {
-    static const char *headers[] = {"休眠布局", "屏幕方向", "休眠超时", "WiFi 状态", "关于"};
+    static const char *headers[SYSTEM_MENU_COUNT] = {
+        "休眠布局", "屏幕方向", "休眠超时", "WiFi 状态",
+        "清洁屏幕", "恢复出厂", "关于"
+    };
     widget_draw_text(20, MENU_Y_START - 24, "[系统设置]", EPD_COLOR_RED);
 
-    static char values[5][32];
+    static char values[SYSTEM_MENU_COUNT][32];
     static const char *layouts[] = {"时钟天气", "风景图", "诗词"};
     snprintf(values[0], sizeof(values[0]), "%s", layouts[s_sc.sleepLayout < 3 ? s_sc.sleepLayout : 0]);
     snprintf(values[1], sizeof(values[1]), "%u 度", s_sc.displayRotation * 90);
@@ -111,9 +120,11 @@ static void render_system_menu(void)
         snprintf(values[2], sizeof(values[2]), "%lu 分", (unsigned long)s_sc.sleepTimeoutSec / 60);
     }
     snprintf(values[3], sizeof(values[3]), "%s", s_sc.initialized ? "已配网" : "未配网");
-    snprintf(values[4], sizeof(values[4]), "v0.2.0");
+    snprintf(values[4], sizeof(values[4]), "执行");
+    snprintf(values[5], sizeof(values[5]), "执行");
+    snprintf(values[6], sizeof(values[6]), "v0.5.0");
 
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < SYSTEM_MENU_COUNT; i++) {
         int y = MENU_Y_START + i * MENU_LINE_H;
         char line[40];
         if (i == s_item) {
@@ -223,15 +234,41 @@ static void on_key(KeyId key, KeyEvent event)
         else if (s_sub == SUB_READING) { s_sub = SUB_SYSTEM; s_item = 4; }
         on_render();
     } else if (key == KEY_NEXT) {
-        int max_item = 4;
+        int max_item = (s_sub == SUB_READING) ? 4 : (SYSTEM_MENU_COUNT - 1);
         if (s_item < max_item) s_item++;
         else if (s_sub == SUB_SYSTEM) { s_sub = SUB_READING; s_item = 0; }
         on_render();
     } else if (key == KEY_HOME) {
-        /* 切换子菜单 */
-        if (s_sub == SUB_READING) s_sub = SUB_SYSTEM;
-        else                       s_sub = SUB_READING;
-        s_item = 0;
+        if (s_sub == SUB_READING) {
+            /* 切换到系统设置 */
+            s_sub = SUB_SYSTEM;
+            s_item = 0;
+        } else {
+            /* 系统设置中按 HOME 执行当前选项 */
+            switch (s_item) {
+            case 4: /* 清洁屏幕 */
+                ESP_LOGI(TAG, "执行清洁屏幕");
+                epd_clear(EPD_COLOR_BLACK);
+                epd_display_full();
+                vTaskDelay(pdMS_TO_TICKS(2000));
+                epd_clear(EPD_COLOR_WHITE);
+                epd_display_full();
+                on_render();
+                break;
+
+            case 5: /* 恢复出厂设置 */
+                ESP_LOGW(TAG, "恢复出厂设置");
+                config_factory_reset();
+                esp_restart();
+                break;
+
+            default:
+                /* 其他选项切换回阅读设置 */
+                s_sub = SUB_READING;
+                s_item = 0;
+                break;
+            }
+        }
         on_render();
     } else if (key == KEY_PWR) {
         page_mgr_switch(PAGE_HOME);

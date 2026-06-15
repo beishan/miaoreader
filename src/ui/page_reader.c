@@ -6,6 +6,7 @@
 #include "ui/widget.h"
 #include "ui/status_bar.h"
 #include "ui/page_mgr.h"
+#include "ui/page_menu.h"
 #include "engine/types.h"
 #include "engine/config.h"
 #include "engine/typesetter.h"
@@ -220,7 +221,11 @@ static void on_key(KeyId key, KeyEvent event)
             on_render();
         }
     } else if (key == KEY_HOME && event == KEY_EVT_SHORT) {
-        page_mgr_switch(PAGE_BOOKSHELF);
+        /* 弹出阅读上下文菜单 */
+        const char *book_name = strrchr(s_current_path, '/');
+        book_name = book_name ? book_name + 1 : s_current_path;
+        page_menu_set_book_info(book_name, s_current_page, s_page_count);
+        page_mgr_push(PAGE_MENU);
     }
 }
 
