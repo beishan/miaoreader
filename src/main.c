@@ -24,6 +24,7 @@
 #include "ui/page_reader.h"
 #include "ui/page_settings.h"
 #include "ui/page_sleep.h"
+#include "ui/page_boot.h"
 
 static const char *TAG = "main";
 
@@ -138,6 +139,7 @@ void app_main(void)
     ESP_ERROR_CHECK(power_mgr_init());
 
     /* 注册页面 */
+    page_mgr_register(&page_boot_vtbl);
     page_mgr_register(&page_home_vtbl);
     page_mgr_register(&page_bookshelf_vtbl);
     page_mgr_register(&page_reader_vtbl);
@@ -157,8 +159,12 @@ void app_main(void)
     /* 启动 WiFi 连接任务 */
     xTaskCreate(wifi_connect_task, "wifi_connect", 4096, &sys_cfg, 5, NULL);
 
-    /* 进入主页 */
-    page_mgr_switch(PAGE_HOME);
+    /* 根据初始化状态选择页面 */
+    if (!sys_cfg.initialized) {
+        page_mgr_switch(PAGE_BOOT);
+    } else {
+        page_mgr_switch(PAGE_HOME);
+    }
 
     ESP_LOGI(TAG, "初始化完成，进入主循环");
 

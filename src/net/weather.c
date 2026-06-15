@@ -6,6 +6,8 @@
 #include "engine/config.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "nvs_flash.h"
+#include "nvs.h"
 #include "cJSON.h"
 #include <string.h>
 #include <time.h>
@@ -228,6 +230,45 @@ static esp_err_t parse_air_quality(const char *json)
     return ESP_OK;
 }
 
+/* NVS 缓存 key */
+static const char *NVS_NAMESPACE = "weather";
+static const char *NVS_KEY_DATA = "weather_data";
+static const char *NVS_KEY_FORECAST = "forecast";
+
+/* 从 NVS 加载天气缓存 */
+static void load_cache_from_nvs(void)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
+    if (err != ESP_OK) return;
+
+    size_t size = sizeof(WeatherData);
+    if (nvs_get_blob(handle, NVS_KEY_DATA, &s_current, &size) == ESP_OK) {
+        s_last_update = s_current.update_time;
+        ESP_LOGI(TAG, "从 NVS 加载天气缓存: %s %d°C", s_current.city, s_current.temp_now);
+    }
+
+    size = sizeof(WeatherForecast);
+    nvs_get_blob(handle, NVS_KEY_FORECAST, &s_forecast, &size);
+
+    nvs_close(handle);
+}
+
+/* 保存天气数据到 NVS */
+static void save_cache_to_nvs(void)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return;
+
+    nvs_set_blob(handle, NVS_KEY_DATA, &s_current, sizeof(WeatherData));
+    nvs_set_blob(handle, NVS_KEY_FORECAST, &s_forecast, sizeof(WeatherForecast));
+    nvs_commit(handle);
+    nvs_close(handle);
+
+    ESP_LOGI(TAG, "天气缓存已保存到 NVS");
+}
+
 esp_err_t weather_init(void)
 {
     if (s_initialized) {
@@ -235,6 +276,9 @@ esp_err_t weather_init(void)
     }
 
     ESP_LOGI(TAG, "初始化天气服务");
+
+    /* 从 NVS 加载缓存 */
+    load_cache_from_nvs();
 
     /* 从配置加载 API Key 和城市 */
     SysConfig cfg;
@@ -316,6 +360,9 @@ esp_err_t weather_refresh(void)
 
     ESP_LOGI(TAG, "天气更新完成: %s %d°C %s",
              s_current.city, s_current.temp_now, s_current.condition);
+
+    /* 保存到 NVS 缓存 */
+    save_cache_to_nvs();
 
     return ESP_OK;
 }

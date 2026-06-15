@@ -23,6 +23,7 @@ idf_component_register(
          "ui/page_reader.c"
          "ui/page_settings.c"
          "ui/page_sleep.c"
+         "ui/page_boot.c"
     INCLUDE_DIRS "."
     REQUIRES driver esp_wifi esp_netif nvs_flash esp_timer freetype espressif__cjson esp_http_server esp_http_client esp_event app_update
 )

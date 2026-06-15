@@ -3,6 +3,7 @@
  * @brief 网页服务器模块：HTTP 路由和 API
  */
 #include "web_server.h"
+#include "ota.h"
 #include "weather.h"
 #include "hal/wifi_mgr.h"
 #include "hal/sd_card.h"
@@ -15,6 +16,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <time.h>
 
 static const char *TAG = "web_server";
 
@@ -41,12 +43,9 @@ static esp_err_t api_system_info_handler(httpd_req_t *req)
 
     /* 系统信息 */
     cJSON *system = cJSON_CreateObject();
-    cJSON_AddStringToObject(system, "version", "0.3.0");
+    cJSON_AddStringToObject(system, "version", "0.5.0");
     cJSON_AddStringToObject(system, "device", "妙阅 E-Reader");
-
-    /* SD 卡信息 */
     cJSON_AddBoolToObject(system, "sd_mounted", sd_card_is_mounted());
-
     cJSON_AddItemToObject(root, "system", system);
 
     /* 配置状态 */
@@ -56,6 +55,8 @@ static esp_err_t api_system_info_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(config, "initialized", cfg.initialized);
     cJSON_AddStringToObject(config, "weather_city", cfg.weatherCity);
     cJSON_AddBoolToObject(config, "weather_configured", cfg.weatherApiKey[0] != '\0');
+    cJSON_AddNumberToObject(config, "sleep_layout", cfg.sleepLayout);
+    cJSON_AddNumberToObject(config, "sleep_timeout", cfg.sleepTimeoutSec);
     cJSON_AddItemToObject(root, "config", config);
 
     char *json = cJSON_PrintUnformatted(root);
@@ -248,10 +249,72 @@ static esp_err_t api_weather_config_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+/* POST /api/sleep/config - 配置休眠布局 */
+static esp_err_t api_sleep_config_handler(httpd_req_t *req)
+{
+    char buf[256];
+    int len = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (len <= 0) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_send(req, "{\"error\":\"no data\"}", -1);
+        return ESP_OK;
+    }
+    buf[len] = '\0';
+
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_send(req, "{\"error\":\"invalid json\"}", -1);
+        return ESP_OK;
+    }
+
+    cJSON *layout = cJSON_GetObjectItem(root, "layout");
+    cJSON *timeout = cJSON_GetObjectItem(root, "timeout");
+
+    SysConfig cfg;
+    config_load_sys(&cfg);
+
+    if (layout && cJSON_IsNumber(layout)) {
+        cfg.sleepLayout = (uint8_t)layout->valueint;
+    }
+    if (timeout && cJSON_IsNumber(timeout)) {
+        cfg.sleepTimeoutSec = (uint32_t)timeout->valueint;
+    }
+
+    config_save_sys(&cfg);
+    cJSON_Delete(root);
+
+    ESP_LOGI(TAG, "休眠配置已更新: layout=%u, timeout=%lu",
+             cfg.sleepLayout, (unsigned long)cfg.sleepTimeoutSec);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, "{\"status\":\"ok\"}", -1);
+    return ESP_OK;
+}
+
+/* URL 解码辅助函数 */
+static void url_decode(const char *src, char *dst, size_t dst_len)
+{
+    size_t i = 0, j = 0;
+    while (src[i] && j < dst_len - 1) {
+        if (src[i] == '%' && src[i+1] && src[i+2]) {
+            char hex[3] = {src[i+1], src[i+2], 0};
+            dst[j++] = (char)strtol(hex, NULL, 16);
+            i += 3;
+        } else if (src[i] == '+') {
+            dst[j++] = ' ';
+            i++;
+        } else {
+            dst[j++] = src[i++];
+        }
+    }
+    dst[j] = '\0';
+}
+
 /* GET /api/books - 书籍列表 */
 static esp_err_t api_books_handler(httpd_req_t *req)
 {
-    DIR *dir = opendir("/sd/books");
+    DIR *dir = opendir("/sdcard/books");
     if (!dir) {
         httpd_resp_set_type(req, "application/json");
         httpd_resp_send(req, "[]", -1);
@@ -273,7 +336,7 @@ static esp_err_t api_books_handler(httpd_req_t *req)
 
         /* 获取文件大小 */
         char path[280];
-        snprintf(path, sizeof(path), "/sd/books/%s", entry->d_name);
+        snprintf(path, sizeof(path), "/sdcard/books/%s", entry->d_name);
         struct stat st;
         if (stat(path, &st) == 0) {
             cJSON_AddNumberToObject(book, "size", st.st_size);
@@ -292,44 +355,33 @@ static esp_err_t api_books_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-/* 简单的 URL 解码 */
-static void url_decode(const char *src, char *dst, size_t dst_len)
-{
-    size_t i = 0, j = 0;
-    while (src[i] && j < dst_len - 1) {
-        if (src[i] == '%' && src[i+1] && src[i+2]) {
-            char hex[3] = {src[i+1], src[i+2], 0};
-            dst[j++] = (char)strtol(hex, NULL, 16);
-            i += 3;
-        } else if (src[i] == '+') {
-            dst[j++] = ' ';
-            i++;
-        } else {
-            dst[j++] = src[i++];
-        }
-    }
-    dst[j] = '\0';
-}
-
-/* DELETE /api/books/:name - 删除书籍 */
+/* POST /api/books/delete?name=xxx - 删除书籍 */
 static esp_err_t api_books_delete_handler(httpd_req_t *req)
 {
-    /* 从 URI 中提取书名 */
-    const char *uri = req->uri;
-    const char *name = strrchr(uri, '/');
-    if (!name || strlen(name) <= 1) {
+    /* 从查询参数获取书名 */
+    char name[256] = {0};
+    size_t buf_len = httpd_req_get_url_query_len(req) + 1;
+    if (buf_len > 1) {
+        char *buf = malloc(buf_len);
+        if (buf) {
+            httpd_req_get_url_query_str(req, buf, buf_len);
+            httpd_query_key_value(buf, "name", name, sizeof(name));
+            free(buf);
+        }
+    }
+
+    if (name[0] == '\0') {
         httpd_resp_set_status(req, "400 Bad Request");
-        httpd_resp_send(req, "{\"error\":\"book name required\"}", -1);
+        httpd_resp_send(req, "{\"error\":\"name parameter required\"}", -1);
         return ESP_OK;
     }
-    name++;  /* 跳过 '/' */
 
     /* URL 解码 */
     char decoded[256];
     url_decode(name, decoded, sizeof(decoded));
 
     char path[280];
-    snprintf(path, sizeof(path), "/sd/books/%s", decoded);
+    snprintf(path, sizeof(path), "/sdcard/books/%s", decoded);
 
     if (unlink(path) == 0) {
         ESP_LOGI(TAG, "删除书籍: %s", path);
@@ -343,11 +395,92 @@ static esp_err_t api_books_delete_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+/* POST /api/books/upload - 上传书籍 */
+static esp_err_t api_books_upload_handler(httpd_req_t *req)
+{
+    char buf[512];
+    int ret;
+    int remaining = req->content_len;
+
+    if (remaining <= 0 || remaining > 50 * 1024 * 1024) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_send(req, "{\"error\":\"invalid content length\"}", -1);
+        return ESP_OK;
+    }
+
+    /* 从查询参数获取文件名 */
+    char filename[128] = "uploaded.txt";
+    size_t query_len = httpd_req_get_url_query_len(req) + 1;
+    if (query_len > 1) {
+        char *query_buf = malloc(query_len);
+        if (query_buf) {
+            httpd_req_get_url_query_str(req, query_buf, query_len);
+            httpd_query_key_value(query_buf, "name", filename, sizeof(filename));
+            free(query_buf);
+        }
+    }
+
+    /* 如果没有指定文件名，使用默认名称 */
+    if (filename[0] == '\0') {
+        snprintf(filename, sizeof(filename), "uploaded_%lu.txt", (unsigned long)time(NULL));
+    }
+
+    /* 检查文件扩展名 */
+    const char *ext = strrchr(filename, '.');
+    if (!ext || (strcasecmp(ext, ".txt") != 0 && strcasecmp(ext, ".epub") != 0)) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_send(req, "{\"error\":\"only .txt and .epub files are supported\"}", -1);
+        return ESP_OK;
+    }
+
+    /* 创建目标文件 */
+    char path[280];
+    snprintf(path, sizeof(path), "/sdcard/books/%s", filename);
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_send(req, "{\"error\":\"failed to create file\"}", -1);
+        return ESP_OK;
+    }
+
+    /* 接收文件数据 */
+    int total_received = 0;
+    while (remaining > 0) {
+        ret = httpd_req_recv(req, buf, remaining > sizeof(buf) ? sizeof(buf) : remaining);
+        if (ret <= 0) {
+            if (ret == HTTPD_SOCK_ERR_TIMEOUT) continue;
+            fclose(f);
+            unlink(path);
+            httpd_resp_set_status(req, "500 Internal Server Error");
+            httpd_resp_send(req, "{\"error\":\"receive failed\"}", -1);
+            return ESP_FAIL;
+        }
+        fwrite(buf, 1, ret, f);
+        total_received += ret;
+        remaining -= ret;
+    }
+
+    fclose(f);
+    ESP_LOGI(TAG, "上传书籍: %s (%d 字节)", path, total_received);
+
+    /* 返回成功响应 */
+    cJSON *resp = cJSON_CreateObject();
+    cJSON_AddStringToObject(resp, "status", "ok");
+    cJSON_AddStringToObject(resp, "filename", filename);
+    cJSON_AddNumberToObject(resp, "size", total_received);
+    char *json = cJSON_PrintUnformatted(resp);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+
+    free(json);
+    cJSON_Delete(resp);
+    return ESP_OK;
+}
+
 /* ============= 静态页面处理 ============= */
 
-/* 内嵌的 HTML 页面（最小化版本） */
-static const char INDEX_HTML[] = R"html(
-<!DOCTYPE html>
+/* 内嵌的 HTML 页面 */
+static const char INDEX_HTML[] = R"html(<!DOCTYPE html>
 <html><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -362,8 +495,12 @@ h2{color:#666;font-size:16px;margin-bottom:12px;border-bottom:1px solid #eee;pad
 .form-group{margin-bottom:12px}
 label{display:block;color:#666;font-size:14px;margin-bottom:4px}
 input,select{width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px}
-button{background:#4CAF50;color:#fff;border:none;padding:10px 20px;border-radius:4px;cursor:pointer;font-size:14px;width:100%}
+button{background:#4CAF50;color:#fff;border:none;padding:10px 20px;border-radius:4px;cursor:pointer;font-size:14px;width:100%;margin-top:8px}
 button:hover{background:#45a049}
+button.danger{background:#f44336}
+button.danger:hover{background:#d32f2f}
+button.secondary{background:#2196F3}
+button.secondary:hover{background:#1976D2}
 .status{padding:8px;background:#e8f5e9;border-radius:4px;margin-bottom:12px;font-size:14px}
 .status.error{background:#ffebee}
 .book-list{list-style:none}
@@ -374,15 +511,20 @@ button:hover{background:#45a049}
 .weather .temp{font-size:48px;font-weight:bold;color:#333}
 .weather .condition{color:#666;font-size:18px}
 .weather .details{color:#999;font-size:14px;margin-top:8px}
+.radio-group{display:flex;gap:16px;margin:8px 0}
+.radio-group label{display:flex;align-items:center;gap:4px;cursor:pointer}
+.progress{margin-top:8px;font-size:12px;color:#999}
 </style>
 </head><body>
 <div class="container">
 <h1>📖 妙阅 E-Reader</h1>
 
 <div class="card">
-<h2>📡 WiFi 状态</h2>
+<h2>📡 WiFi 设置</h2>
 <div id="wifi-status" class="status">加载中...</div>
-<div class="form-group">
+<button class="secondary" onclick="scanWifi()">扫描附近 WiFi</button>
+<div id="wifi-list"></div>
+<div class="form-group" style="margin-top:12px">
 <label>WiFi 名称</label>
 <input type="text" id="wifi-ssid" placeholder="选择或输入 WiFi 名称">
 </div>
@@ -391,7 +533,6 @@ button:hover{background:#45a049}
 <input type="password" id="wifi-password" placeholder="WiFi 密码">
 </div>
 <button onclick="connectWifi()">连接 WiFi</button>
-<div id="wifi-list" style="margin-top:12px"></div>
 </div>
 
 <div class="card weather">
@@ -413,7 +554,45 @@ button:hover{background:#45a049}
 
 <div class="card">
 <h2>📚 书架管理</h2>
-<ul id="book-list" class="book-list"><li>加载中...</li></ul>
+<div class="form-group">
+<label>上传书籍（支持 .txt / .epub）</label>
+<input type="file" id="book-file" accept=".txt,.epub">
+</div>
+<button onclick="uploadBook()">上传</button>
+<div id="upload-progress" class="progress"></div>
+<ul id="book-list" class="book-list" style="margin-top:16px"><li>加载中...</li></ul>
+</div>
+
+<div class="card">
+<h2>😴 休眠设置</h2>
+<div class="form-group">
+<label>休眠布局</label>
+<div class="radio-group">
+<label><input type="radio" name="sleep-layout" value="0" checked> 时钟天气</label>
+<label><input type="radio" name="sleep-layout" value="1"> 风景图</label>
+<label><input type="radio" name="sleep-layout" value="2"> 诗词</label>
+</div>
+</div>
+<div class="form-group">
+<label>自动休眠时间</label>
+<select id="sleep-timeout">
+<option value="300">5 分钟</option>
+<option value="600">10 分钟</option>
+<option value="1800">30 分钟</option>
+<option value="0">不自动休眠</option>
+</select>
+</div>
+<button onclick="saveSleepConfig()">保存休眠设置</button>
+</div>
+
+<div class="card">
+<h2>⬆️ 固件升级</h2>
+<div class="form-group">
+<label>选择固件文件（.bin）</label>
+<input type="file" id="firmware-file" accept=".bin">
+</div>
+<button class="danger" onclick="uploadFirmware()">升级固件</button>
+<div id="firmware-progress" class="progress"></div>
 </div>
 
 <div class="card">
@@ -431,100 +610,154 @@ fetch('/api/weather/data').then(r=>r.json()),
 fetch('/api/books').then(r=>r.json())
 ]);
 
-// WiFi 状态
 const ws = document.getElementById('wifi-status');
 if (sysRes.wifi.connected) {
 ws.className = 'status';
-ws.textContent = `已连接: ${sysRes.wifi.ssid} (${sysRes.wifi.ip})`;
+ws.textContent = '已连接: ' + sysRes.wifi.ssid + ' (' + sysRes.wifi.ip + ')';
 } else {
 ws.className = 'status error';
 ws.textContent = '未连接';
 }
 
-// 天气
 const wd = document.getElementById('weather-data');
 if (weatherRes.current.temp_now > 0) {
-wd.innerHTML = `<div class="temp">${weatherRes.current.temp_now}°C</div>
-<div class="condition">${weatherRes.current.city} ${weatherRes.current.condition}</div>
-<div class="details">湿度 ${weatherRes.current.humidity}% | AQI ${weatherRes.current.aqi}</div>`;
+wd.innerHTML = '<div class="temp">' + weatherRes.current.temp_now + '°C</div>' +
+'<div class="condition">' + weatherRes.current.city + ' ' + weatherRes.current.condition + '</div>' +
+'<div class="details">湿度 ' + weatherRes.current.humidity + '% | AQI ' + weatherRes.current.aqi + '</div>';
 }
 
-// 书籍
 const bl = document.getElementById('book-list');
 if (booksRes.length === 0) {
 bl.innerHTML = '<li>暂无书籍</li>';
 } else {
-bl.innerHTML = booksRes.map(b =>
-`<li><span>${b.name}</span><button class="delete-btn" onclick="deleteBook('${b.name}')">删除</button></li>`
-).join('');
+bl.innerHTML = booksRes.map(function(b) {
+return '<li><span>' + b.name + ' (' + Math.round(b.size/1024) + 'KB)</span>' +
+'<button class="delete-btn" onclick="deleteBook(\'' + b.name + '\')">删除</button></li>';
+}).join('');
 }
 
-// 系统信息
-const si = document.getElementById('system-info');
-si.innerHTML = `版本: ${sysRes.system.version} | SD卡: ${sysRes.system.sd_mounted ? '已挂载' : '未挂载'}`;
+var si = document.getElementById('system-info');
+si.innerHTML = '版本: ' + sysRes.system.version + ' | SD卡: ' + (sysRes.system.sd_mounted ? '已挂载' : '未挂载');
 
-// 天气配置
 if (sysRes.config.weather_configured) {
 document.getElementById('weather-key').value = '***已配置***';
 document.getElementById('weather-city').value = sysRes.config.weather_city;
 }
+
+var layout = sysRes.config.sleep_layout || 0;
+document.querySelector('input[name="sleep-layout"][value="' + layout + '"]').checked = true;
+document.getElementById('sleep-timeout').value = sysRes.config.sleep_timeout || 300;
 } catch(e) { console.error(e); }
 }
 
 async function scanWifi() {
-const list = document.getElementById('wifi-list');
-list.innerHTML = '扫描中...';
+var list = document.getElementById('wifi-list');
+list.innerHTML = '<div style="padding:8px;color:#999">扫描中...</div>';
 try {
-const res = await fetch('/api/wifi/scan');
-const data = await res.json();
-list.innerHTML = '<div style="margin-top:8px">' +
-data.map(ap => `<div style="padding:4px;cursor:pointer" onclick="document.getElementById('wifi-ssid').value='${ap.ssid}'">${ap.ssid} (${ap.rssi}dBm)</div>`).join('') +
-'</div>';
-} catch(e) { list.innerHTML = '扫描失败'; }
+var res = await fetch('/api/wifi/scan');
+var data = await res.json();
+list.innerHTML = '<div style="margin-top:8px;border:1px solid #eee;border-radius:4px;max-height:200px;overflow-y:auto">' +
+data.map(function(ap) {
+return '<div style="padding:8px;cursor:pointer;border-bottom:1px solid #f5f5f5" onclick="document.getElementById(\'wifi-ssid\').value=\'' + ap.ssid + '\'">' + ap.ssid + ' (' + ap.rssi + 'dBm)</div>';
+}).join('') + '</div>';
+} catch(e) { list.innerHTML = '<div style="padding:8px;color:red">扫描失败</div>'; }
 }
 
 async function connectWifi() {
-const ssid = document.getElementById('wifi-ssid').value;
-const pwd = document.getElementById('wifi-password').value;
+var ssid = document.getElementById('wifi-ssid').value;
+var pwd = document.getElementById('wifi-password').value;
 if (!ssid) { alert('请输入 WiFi 名称'); return; }
 try {
 await fetch('/api/wifi/connect', {
 method: 'POST',
 headers: {'Content-Type':'application/json'},
-body: JSON.stringify({ssid, password: pwd})
+body: JSON.stringify({ssid: ssid, password: pwd})
 });
 alert('正在连接，设备将重启...');
 } catch(e) { alert('连接失败'); }
 }
 
 async function saveWeatherConfig() {
-const key = document.getElementById('weather-key').value;
-const city = document.getElementById('weather-city').value;
+var key = document.getElementById('weather-key').value;
+var city = document.getElementById('weather-city').value;
 if (!key || !city) { alert('请输入 API Key 和城市'); return; }
 try {
 await fetch('/api/weather/config', {
 method: 'POST',
 headers: {'Content-Type':'application/json'},
-body: JSON.stringify({api_key: key, city})
+body: JSON.stringify({api_key: key, city: city})
 });
 alert('天气配置已保存');
 loadData();
 } catch(e) { alert('保存失败'); }
 }
 
-async function deleteBook(name) {
-if (!confirm(`确定删除 "${name}"？`)) return;
+async function saveSleepConfig() {
+var layout = document.querySelector('input[name="sleep-layout"]:checked').value;
+var timeout = document.getElementById('sleep-timeout').value;
 try {
-await fetch(`/api/books/${encodeURIComponent(name)}`, {method:'DELETE'});
+await fetch('/api/sleep/config', {
+method: 'POST',
+headers: {'Content-Type':'application/json'},
+body: JSON.stringify({layout: parseInt(layout), timeout: parseInt(timeout)})
+});
+alert('休眠设置已保存');
+} catch(e) { alert('保存失败'); }
+}
+
+async function uploadBook() {
+var fileInput = document.getElementById('book-file');
+if (!fileInput.files.length) { alert('请选择文件'); return; }
+var file = fileInput.files[0];
+var progress = document.getElementById('upload-progress');
+progress.textContent = '上传中...';
+try {
+var formData = new FormData();
+formData.append('file', file);
+var res = await fetch('/api/books/upload', {method: 'POST', body: formData});
+var data = await res.json();
+if (data.status === 'ok') {
+progress.textContent = '上传成功: ' + data.filename;
+loadData();
+} else {
+progress.textContent = '上传失败: ' + (data.error || 'unknown error');
+}
+} catch(e) { progress.textContent = '上传失败'; }
+}
+
+async function deleteBook(name) {
+if (!confirm('确定删除 "' + name + '"？')) return;
+try {
+await fetch('/api/books/delete?name=' + encodeURIComponent(name), {method: 'POST'});
 loadData();
 } catch(e) { alert('删除失败'); }
+}
+
+async function uploadFirmware() {
+var fileInput = document.getElementById('firmware-file');
+if (!fileInput.files.length) { alert('请选择固件文件'); return; }
+if (!confirm('确定升级固件？设备将重启。')) return;
+var file = fileInput.files[0];
+var progress = document.getElementById('firmware-progress');
+progress.textContent = '上传中，请勿断电...';
+try {
+var res = await fetch('/api/system/update', {
+method: 'POST',
+headers: {'Content-Type': 'application/octet-stream'},
+body: file
+});
+if (res.ok) {
+progress.textContent = '升级成功，设备正在重启...';
+} else {
+progress.textContent = '升级失败';
+}
+} catch(e) { progress.textContent = '升级失败'; }
 }
 
 loadData();
 setInterval(loadData, 60000);
 </script>
-</body></html>
-)html";
+</body></html>)html";
 
 /* GET / - 首页 */
 static esp_err_t index_handler(httpd_req_t *req)
@@ -604,6 +837,13 @@ esp_err_t web_server_start(void)
     };
     httpd_register_uri_handler(s_server, &uri_weather_config);
 
+    httpd_uri_t uri_sleep_config = {
+        .uri = "/api/sleep/config",
+        .method = HTTP_POST,
+        .handler = api_sleep_config_handler,
+    };
+    httpd_register_uri_handler(s_server, &uri_sleep_config);
+
     httpd_uri_t uri_books = {
         .uri = "/api/books",
         .method = HTTP_GET,
@@ -617,6 +857,20 @@ esp_err_t web_server_start(void)
         .handler = api_books_delete_handler,
     };
     httpd_register_uri_handler(s_server, &uri_books_delete);
+
+    httpd_uri_t uri_books_upload = {
+        .uri = "/api/books/upload",
+        .method = HTTP_POST,
+        .handler = api_books_upload_handler,
+    };
+    httpd_register_uri_handler(s_server, &uri_books_upload);
+
+    httpd_uri_t uri_system_update = {
+        .uri = "/api/system/update",
+        .method = HTTP_POST,
+        .handler = ota_update_handler,
+    };
+    httpd_register_uri_handler(s_server, &uri_system_update);
 
     s_running = true;
     ESP_LOGI(TAG, "网页服务器启动成功，访问 http://<device-ip>/");
