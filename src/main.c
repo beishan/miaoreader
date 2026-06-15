@@ -13,6 +13,7 @@
 #include "ui/page_home.h"
 #include "ui/page_bookshelf.h"
 #include "ui/page_reader.h"
+#include "ui/page_settings.h"
 
 static const char *TAG = "main";
 
@@ -55,6 +56,7 @@ void app_main(void)
     page_mgr_register(&page_home_vtbl);
     page_mgr_register(&page_bookshelf_vtbl);
     page_mgr_register(&page_reader_vtbl);
+    page_mgr_register(&page_settings_vtbl);
 
     /* 初始化按键：把事件转给 page_mgr */
     keys_init(page_mgr_handle_key);
