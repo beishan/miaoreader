@@ -11,6 +11,8 @@
 #include "engine/config.h"
 #include "engine/typesetter.h"
 #include "engine/book_parser.h"
+#include "engine/book_meta.h"
+#include "engine/reading_stats.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "nvs_flash.h"
@@ -133,6 +135,9 @@ static void on_enter(void)
     ESP_LOGI(TAG, "进入阅读器");
     s_partial_count = 0;
 
+    /* 开始阅读计时 */
+    reading_stats_start_session();
+
     /* 如果有书籍路径，尝试恢复阅读进度 */
     if (s_current_path[0] != '\0' && s_book_text) {
         uint32_t saved_page = load_reading_progress(s_current_path);
@@ -199,7 +204,18 @@ static void on_render(void)
 static void page_reader_on_exit(void)
 {
     ESP_LOGI(TAG, "退出阅读器");
+
+    /* 保存阅读进度到 NVS */
     save_reading_progress();
+
+    /* 更新 book_meta 中的进度 */
+    if (s_current_path[0] != '\0') {
+        book_meta_update_page(s_current_path, s_current_page);
+        book_meta_update_total_pages(s_current_path, s_page_count);
+    }
+
+    /* 结束阅读计时 */
+    reading_stats_end_session();
 }
 
 static void on_key(KeyId key, KeyEvent event)

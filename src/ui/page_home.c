@@ -10,6 +10,8 @@
 #include "hal/wifi_mgr.h"
 #include "net/weather.h"
 #include "engine/config.h"
+#include "engine/book_meta.h"
+#include "engine/reading_stats.h"
 #include "esp_log.h"
 #include <stdio.h>
 #include <string.h>
@@ -27,6 +29,8 @@ static const char *weekday_cn(int wday)
 static void on_enter(void)
 {
     ESP_LOGI(TAG, "进入主页");
+    /* 检查日期变化，重置今日统计 */
+    reading_stats_check_day_reset();
 }
 
 static void on_render(void)
@@ -48,33 +52,28 @@ static void on_render(void)
     /* 天气区：y=70 */
     WeatherData weather;
     if (weather_get_current(&weather) == ESP_OK && weather.temp_now != 0) {
-        /* 城市 + 天气状况 */
         char weather_str[80];
         snprintf(weather_str, sizeof(weather_str), "%s  %s",
                  weather.city, weather.condition);
         int ww = widget_text_width(weather_str);
         widget_draw_text((EPD_WIDTH - ww) / 2, 70, weather_str, EPD_COLOR_BLACK);
 
-        /* 温度 */
         char temp_str[32];
         snprintf(temp_str, sizeof(temp_str), "%d°C  %d/%d°C",
                  weather.temp_now, weather.temp_low, weather.temp_high);
         int tw = widget_text_width(temp_str);
         widget_draw_text((EPD_WIDTH - tw) / 2, 90, temp_str, EPD_COLOR_BLACK);
 
-        /* 湿度 + 空气质量 */
         char detail_str[32];
         snprintf(detail_str, sizeof(detail_str), "湿度:%d%%  AQI:%s",
                  weather.humidity, weather.aqi[0] ? weather.aqi : "--");
         int dw = widget_text_width(detail_str);
         widget_draw_text((EPD_WIDTH - dw) / 2, 110, detail_str, EPD_COLOR_BLACK);
     } else {
-        /* 天气未配置 */
         const char *no_weather = "天气未配置";
         int nw = widget_text_width(no_weather);
         widget_draw_text((EPD_WIDTH - nw) / 2, 80, no_weather, EPD_COLOR_BLACK);
 
-        /* WiFi 状态提示 */
         const char *wifi_hint = wifi_mgr_is_connected()
             ? "请在网页端配置天气 API"
             : "请连接 WiFi 或网页配网";
@@ -86,9 +85,43 @@ static void on_render(void)
     epd_draw_rect(20, 130, EPD_WIDTH - 40, 1, EPD_COLOR_BLACK);
 
     /* 统计区 y=150..220 */
-    widget_draw_text(20, 150, "藏书: -- 册", EPD_COLOR_BLACK);
-    widget_draw_text(20, 170, "今日阅读: -- 分钟", EPD_COLOR_BLACK);
-    widget_draw_text(20, 190, "正在读: --", EPD_COLOR_BLACK);
+    int book_count = book_meta_get_count();
+    char stat_str[64];
+
+    /* 藏书数量 */
+    snprintf(stat_str, sizeof(stat_str), "藏书: %d 册", book_count);
+    widget_draw_text(20, 150, stat_str, EPD_COLOR_BLACK);
+
+    /* 今日阅读时间 */
+    uint32_t today_min = reading_stats_get_today_minutes();
+    snprintf(stat_str, sizeof(stat_str), "今日阅读: %lu 分钟", (unsigned long)today_min);
+    widget_draw_text(20, 170, stat_str, EPD_COLOR_BLACK);
+
+    /* 当前正在读的书 */
+    BookMeta current_book;
+    if (book_meta_get_current_reading(&current_book) == ESP_OK) {
+        char book_str[140];
+        snprintf(book_str, sizeof(book_str), "正在读: %s", current_book.title);
+        /* 截断过长的书名 */
+        if (strlen(book_str) > 28) {
+            book_str[25] = '.';
+            book_str[26] = '.';
+            book_str[27] = '.';
+            book_str[28] = '\0';
+        }
+        widget_draw_text(20, 190, book_str, EPD_COLOR_BLACK);
+
+        /* 阅读进度 */
+        if (current_book.totalPages > 0) {
+            int pct = (current_book.currentPage * 100) / current_book.totalPages;
+            snprintf(stat_str, sizeof(stat_str), "  第 %lu/%lu 页 (%d%%)",
+                     (unsigned long)(current_book.currentPage + 1),
+                     (unsigned long)current_book.totalPages, pct);
+            widget_draw_text(20, 210, stat_str, EPD_COLOR_BLACK);
+        }
+    } else {
+        widget_draw_text(20, 190, "正在读: 无", EPD_COLOR_BLACK);
+    }
 
     /* WiFi 状态 */
     char ip_str[32];
@@ -98,7 +131,7 @@ static void on_render(void)
     } else {
         snprintf(ip_str, sizeof(ip_str), "WiFi: 未连接");
     }
-    widget_draw_text(20, 220, ip_str, EPD_COLOR_BLACK);
+    widget_draw_text(20, 240, ip_str, EPD_COLOR_BLACK);
 
     /* 提示：按 NEXT 进入书架 */
     static const char *hint = "[NEXT] 书架";

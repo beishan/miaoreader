@@ -6,6 +6,8 @@ idf_component_register(
          "engine/book_parser.c"
          "engine/power_mgr.c"
          "engine/bookmark.c"
+         "engine/book_meta.c"
+         "engine/reading_stats.c"
          "hal/epd.c"
          "hal/keys.c"
          "hal/battery.c"

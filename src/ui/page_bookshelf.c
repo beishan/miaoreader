@@ -8,6 +8,7 @@
 #include "ui/page_mgr.h"
 #include "engine/types.h"
 #include "engine/config.h"
+#include "engine/book_meta.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include <stdio.h>
@@ -30,40 +31,22 @@ static int s_current_page = 0;
 static int s_selected = 0;
 static int s_total_pages = 1;
 
-/* 扫描 SD:/books/ 目录，构造 BookMeta 数组 */
+/* 从 book_meta 加载书籍列表 */
 static void load_books(void)
 {
     s_book_count = 0;
-    DIR *d = opendir("/sd/books");
-    if (!d) {
-        ESP_LOGW(TAG, "/sd/books 目录不存在，使用占位数据");
-        /* 占位 3 本测试书 */
-        for (int i = 0; i < 3 && s_book_count < MAX_BOOKS; i++) {
-            BookMeta *m = &s_books[s_book_count++];
-            memset(m, 0, sizeof(*m));
-            snprintf(m->title, sizeof(m->title), "占位书 %d", i + 1);
-            snprintf(m->filePath, sizeof(m->filePath), "/sd/books/placeholder_%d.txt", i + 1);
-            snprintf(m->id, sizeof(m->id), "placeholder%d", i + 1);
-        }
-    } else {
-        struct dirent *e;
-        while ((e = readdir(d)) != NULL && s_book_count < MAX_BOOKS) {
-            if (e->d_name[0] == '.') continue;
-            const char *ext = strrchr(e->d_name, '.');
-            if (!ext) continue;
-            if (strcasecmp(ext, ".txt") != 0 && strcasecmp(ext, ".epub") != 0) continue;
-            BookMeta *m = &s_books[s_book_count];
-            memset(m, 0, sizeof(*m));
-            strncpy(m->title, e->d_name, sizeof(m->title) - 1);
-            /* 去扩展名 */
-            char *dot = strrchr(m->title, '.');
-            if (dot) *dot = '\0';
-            snprintf(m->filePath, sizeof(m->filePath), "/sd/books/%.200s", e->d_name);
-            snprintf(m->id, sizeof(m->id), "book%d", s_book_count);
+
+    /* 先同步 SD 卡上的书籍 */
+    book_meta_sync_from_sd();
+
+    /* 从 book_meta 加载 */
+    int count = book_meta_get_count();
+    for (int i = 0; i < count && s_book_count < MAX_BOOKS; i++) {
+        if (book_meta_get(i, &s_books[s_book_count]) == ESP_OK) {
             s_book_count++;
         }
-        closedir(d);
     }
+
     s_total_pages = (s_book_count + GRID_COLS * GRID_ROWS - 1) / (GRID_COLS * GRID_ROWS);
     if (s_total_pages < 1) s_total_pages = 1;
 }
@@ -118,8 +101,6 @@ static void on_render(void)
     char info[32];
     snprintf(info, sizeof(info), "%d/%d  共%d本", s_current_page + 1, s_total_pages, s_book_count);
     widget_draw_text(20, EPD_HEIGHT - 14, info, EPD_COLOR_BLACK);
-
-    epd_display_full();
 }
 
 static void on_key(KeyId key, KeyEvent event)
@@ -130,7 +111,6 @@ static void on_key(KeyId key, KeyEvent event)
         if (event == KEY_EVT_SHORT) {
             if (s_selected > 0) {
                 s_selected--;
-                /* 跨页时调整 current_page */
                 if (s_selected < s_current_page * per_page) {
                     s_current_page = s_selected / per_page;
                 }

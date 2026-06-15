@@ -28,6 +28,8 @@
 #include "ui/page_menu.h"
 #include "ui/page_jump.h"
 #include "engine/bookmark.h"
+#include "engine/book_meta.h"
+#include "engine/reading_stats.h"
 
 static const char *TAG = "main";
 
@@ -158,6 +160,12 @@ void app_main(void)
 
     /* 书签初始化 */
     ESP_ERROR_CHECK(bookmark_init());
+
+    /* 书籍元数据初始化 */
+    ESP_ERROR_CHECK(book_meta_init());
+
+    /* 阅读统计初始化 */
+    ESP_ERROR_CHECK(reading_stats_init());
 
     /* 电源管理器初始化 */
     ESP_ERROR_CHECK(power_mgr_init());
