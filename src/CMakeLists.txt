@@ -13,6 +13,7 @@ idf_component_register(
          "ui/widget.c"
          "ui/status_bar.c"
          "ui/page_home.c"
+         "ui/page_bookshelf.c"
     INCLUDE_DIRS "."
     REQUIRES driver esp_wifi esp_netif nvs_flash esp_timer freetype espressif__cjson
 )
