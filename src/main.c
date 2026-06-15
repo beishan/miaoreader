@@ -2,6 +2,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "engine/config.h"
 
 static const char *TAG = "main";
 
@@ -16,6 +17,9 @@ void app_main(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+    // 配置初始化
+    ESP_ERROR_CHECK(config_init());
 
     // TODO: HAL 初始化
     // TODO: 加载配置
