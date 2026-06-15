@@ -1,0 +1,5 @@
+dependencies:
+  espressif/freetype:
+    version: "*"
+  espressif/cjson:
+    version: "*"

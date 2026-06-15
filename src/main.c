@@ -4,6 +4,7 @@
 #include "nvs_flash.h"
 #include "engine/config.h"
 #include "engine/event_bus.h"
+#include "engine/typesetter.h"
 #include "hal/epd.h"
 #include "ui/page_mgr.h"
 #include "ui/widget.h"
@@ -34,6 +35,17 @@ void app_main(void)
     /* UI 初始化 */
     ESP_ERROR_CHECK(page_mgr_init());
     status_bar_init();
+
+    /* 排版器初始化（注册默认字体路径） */
+    TypesetterConfig tcfg = {
+        .fontId = 0, .fontSize = 20, .lineSpacing = 15,
+        .charSpacing = 0, .margin = 12,
+        .pageWidth = 376, .pageHeight = 262,
+    };
+    typesetter_register_font(0, "/sd/fonts/SourceHanSerif.ttf");
+    typesetter_register_font(1, "/sd/fonts/SourceHanSans.ttf");
+    typesetter_register_font(2, "/sd/fonts/LXGWWenKai.ttf");
+    typesetter_init(&tcfg);
 
     /* 显示启动画面（状态栏 + 待办：主页） */
     epd_clear(EPD_COLOR_WHITE);
