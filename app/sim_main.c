@@ -174,6 +174,7 @@ static void draw_settings_content(void)
 static void draw_reader_content(void)
 {
     int y = CONTENT_Y + 5;
+    int content_bottom = RENDERER_HEIGHT - 10;  /* 底部留 10px 边距 */
 
     renderer_draw_text(20, y, "第一章 深渊中的黑暗森林", RENDERER_COLOR_BLACK);
     renderer_fill_rect(20, y + 20, RENDERER_WIDTH - 40, 1, RENDERER_COLOR_BLACK);
@@ -188,8 +189,8 @@ static void draw_reader_content(void)
     renderer_draw_text(20, y + 170, "外面的世界渐渐远去，故事", RENDERER_COLOR_BLACK);
     renderer_draw_text(20, y + 192, "在眼前展开...", RENDERER_COLOR_BLACK);
 
-    /* 进度条 */
-    int bar_x = 20, bar_y = CONTENT_Y + CONTENT_H - 30;
+    /* 进度条 - 放在最底部 */
+    int bar_x = 20, bar_y = content_bottom - 20;
     int bar_w = RENDERER_WIDTH - 40;
     int progress = (s_current_reader_page * 100) / s_total_reader_pages;
 
@@ -234,8 +235,19 @@ static void render(void)
 {
     renderer_clear(RENDERER_COLOR_WHITE);
     draw_status_bar();
-    draw_content();
-    draw_menu_bar();
+
+    /* 阅读器模式下不显示菜单栏，内容区域更大 */
+    if (s_in_reader) {
+        /* 清除整个内容区域 */
+        renderer_fill_rect(0, CONTENT_Y, RENDERER_WIDTH, RENDERER_HEIGHT - CONTENT_Y, RENDERER_COLOR_WHITE);
+        renderer_fill_rect(0, CONTENT_Y, 1, RENDERER_HEIGHT - CONTENT_Y, RENDERER_COLOR_BLACK);
+        renderer_fill_rect(RENDERER_WIDTH - 1, CONTENT_Y, 1, RENDERER_HEIGHT - CONTENT_Y, RENDERER_COLOR_BLACK);
+        draw_reader_content();
+    } else {
+        draw_content();
+        draw_menu_bar();
+    }
+
     renderer_display();
 }
 
