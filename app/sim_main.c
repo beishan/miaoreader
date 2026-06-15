@@ -3,6 +3,7 @@
  * @brief PC 仿真入口
  *
  * 在 PC 上运行电子书阅读器的 UI 仿真
+ * 布局：状态栏（顶部）+ 主体区域（中间）+ 菜单栏（底部）
  */
 #ifdef PC_SIMULATION
 
@@ -11,128 +12,229 @@
 #include <string.h>
 #include <stdlib.h>
 
-/* 模拟的页面状态 */
-typedef enum {
-    SIM_PAGE_HOME,
-    SIM_PAGE_BOOKSHELF,
-    SIM_PAGE_READER,
-    SIM_PAGE_SETTINGS,
-    SIM_PAGE_COUNT,
-} SimPageId;
+/* 屏幕布局 */
+#define STATUS_BAR_HEIGHT   24
+#define MENU_BAR_HEIGHT     30
+#define CONTENT_Y           STATUS_BAR_HEIGHT
+#define CONTENT_H           (RENDERER_HEIGHT - STATUS_BAR_HEIGHT - MENU_BAR_HEIGHT)
 
-static SimPageId s_current_page = SIM_PAGE_HOME;
+/* 菜单项 */
+typedef enum {
+    MENU_HOME,
+    MENU_BOOKSHELF,
+    MENU_SETTINGS,
+    MENU_COUNT,
+} MenuItem;
+
+/* 当前状态 */
+static MenuItem s_current_menu = MENU_HOME;
 static int s_selected_book = 0;
 static int s_current_reader_page = 0;
 static int s_total_reader_pages = 100;
+static bool s_in_reader = false;
 
 /* 绘制状态栏 */
 static void draw_status_bar(void)
 {
     /* 黑底 */
-    renderer_fill_rect(0, 0, RENDERER_WIDTH, 20, RENDERER_COLOR_BLACK);
+    renderer_fill_rect(0, 0, RENDERER_WIDTH, STATUS_BAR_HEIGHT, RENDERER_COLOR_BLACK);
 
-    /* 时间 */
-    renderer_draw_text(4, 4, "14:35", RENDERER_COLOR_WHITE);
+    /* 时间 - 左侧 */
+    renderer_draw_text(8, 6, "14:35", RENDERER_COLOR_WHITE);
 
-    /* 电量 */
-    renderer_draw_text(RENDERER_WIDTH - 50, 4, "87%", RENDERER_COLOR_WHITE);
+    /* 日期 - 中间 */
+    renderer_draw_text(150, 6, "2025-06-15 Sun", RENDERER_COLOR_WHITE);
+
+    /* 电量 - 右侧 */
+    renderer_draw_text(RENDERER_WIDTH - 55, 6, "87%", RENDERER_COLOR_WHITE);
+
+    /* WiFi 图标 - 最右侧 */
+    renderer_fill_rect(RENDERER_WIDTH - 20, 6, 12, 12, RENDERER_COLOR_WHITE);
 }
 
-/* 绘制主页 */
-static void draw_home_page(void)
+/* 绘制菜单栏 */
+static void draw_menu_bar(void)
 {
-    renderer_clear(RENDERER_COLOR_WHITE);
-    draw_status_bar();
+    int y = RENDERER_HEIGHT - MENU_BAR_HEIGHT;
 
-    /* 日期 */
-    renderer_draw_text(120, 50, "2025-06-15", RENDERER_COLOR_BLACK);
+    /* 白底 */
+    renderer_fill_rect(0, y, RENDERER_WIDTH, MENU_BAR_HEIGHT, RENDERER_COLOR_WHITE);
 
-    /* 天气 */
-    renderer_draw_text(100, 80, "Sunny 25C", RENDERER_COLOR_BLACK);
+    /* 上边框 */
+    renderer_fill_rect(0, y, RENDERER_WIDTH, 1, RENDERER_COLOR_BLACK);
+
+    /* 菜单项宽度 */
+    int item_width = RENDERER_WIDTH / MENU_COUNT;
+
+    /* 菜单项标签 */
+    const char *labels[MENU_COUNT] = {
+        " HOME ",
+        " SHELF",
+        " SET  ",
+    };
+
+    for (int i = 0; i < MENU_COUNT; i++) {
+        int x = i * item_width;
+        int text_x = x + (item_width - renderer_text_width(labels[i])) / 2;
+
+        /* 选中项高亮 */
+        if (i == s_current_menu && !s_in_reader) {
+            renderer_fill_rect(x + 2, y + 2, item_width - 4, MENU_BAR_HEIGHT - 4, RENDERER_COLOR_BLACK);
+            renderer_draw_text(text_x, y + 8, labels[i], RENDERER_COLOR_WHITE);
+        } else {
+            renderer_draw_rect(x + 2, y + 2, item_width - 4, MENU_BAR_HEIGHT - 4, RENDERER_COLOR_BLACK);
+            renderer_draw_text(text_x, y + 8, labels[i], RENDERER_COLOR_BLACK);
+        }
+
+        /* 分隔线 */
+        if (i < MENU_COUNT - 1) {
+            renderer_fill_rect(x + item_width - 1, y + 4, 1, MENU_BAR_HEIGHT - 8, RENDERER_COLOR_BLACK);
+        }
+    }
+}
+
+/* 绘制主页内容 */
+static void draw_home_content(void)
+{
+    int y = CONTENT_Y + 10;
+
+    /* 天气区域 */
+    renderer_draw_text(20, y, "Weather: Sunny", RENDERER_COLOR_BLACK);
+    renderer_draw_text(20, y + 18, "Temp: 25C / 18C", RENDERER_COLOR_BLACK);
+    renderer_draw_text(20, y + 36, "Humidity: 55%", RENDERER_COLOR_BLACK);
 
     /* 分割线 */
-    renderer_fill_rect(20, 120, RENDERER_WIDTH - 40, 1, RENDERER_COLOR_BLACK);
+    renderer_fill_rect(20, y + 60, RENDERER_WIDTH - 40, 1, RENDERER_COLOR_BLACK);
 
-    /* 统计 */
-    renderer_draw_text(20, 150, "Books: 5", RENDERER_COLOR_BLACK);
-    renderer_draw_text(20, 170, "Today: 38min", RENDERER_COLOR_BLACK);
-    renderer_draw_text(20, 190, "Reading: Test Book", RENDERER_COLOR_BLACK);
+    /* 阅读统计 */
+    renderer_draw_text(20, y + 75, "Reading Stats:", RENDERER_COLOR_BLACK);
+    renderer_draw_text(20, y + 95, "  Books: 5", RENDERER_COLOR_BLACK);
+    renderer_draw_text(20, y + 113, "  Today: 38 min", RENDERER_COLOR_BLACK);
+    renderer_draw_text(20, y + 131, "  Total: 127 hours", RENDERER_COLOR_BLACK);
 
-    /* WiFi 状态 */
-    renderer_draw_text(20, 220, "WiFi: 192.168.1.100", RENDERER_COLOR_BLACK);
+    /* 分割线 */
+    renderer_fill_rect(20, y + 155, RENDERER_WIDTH - 40, 1, RENDERER_COLOR_BLACK);
 
-    /* 提示 */
-    renderer_draw_text(120, 270, "[NEXT] Bookshelf", RENDERER_COLOR_RED);
+    /* 当前阅读 */
+    renderer_draw_text(20, y + 170, "Currently Reading:", RENDERER_COLOR_BLACK);
+    renderer_draw_text(20, y + 190, "  The Three-Body Problem", RENDERER_COLOR_BLACK);
+    renderer_draw_text(20, y + 208, "  Page 45 / 312 (14%)", RENDERER_COLOR_BLACK);
+
+    /* 进度条 */
+    int bar_x = 20, bar_y = y + 228, bar_w = RENDERER_WIDTH - 40;
+    renderer_draw_rect(bar_x, bar_y, bar_w, 10, RENDERER_COLOR_BLACK);
+    renderer_fill_rect(bar_x + 2, bar_y + 2, (bar_w - 4) * 14 / 100, 6, RENDERER_COLOR_BLACK);
 }
 
-/* 绘制书架页 */
-static void draw_bookshelf_page(void)
+/* 绘制书架内容 */
+static void draw_bookshelf_content(void)
 {
-    renderer_clear(RENDERER_COLOR_WHITE);
-    draw_status_bar();
+    int y = CONTENT_Y + 10;
+
+    /* 标题 */
+    renderer_draw_text(20, y, "Bookshelf", RENDERER_COLOR_BLACK);
 
     /* 绘制 3x2 网格 */
     for (int i = 0; i < 6; i++) {
         int col = i % 3;
         int row = i / 3;
         int x = 20 + col * 120;
-        int y = 30 + row * 130;
+        int book_y = y + 25 + row * 100;
 
-        /* 封面 */
-        renderer_draw_rect(x, y, 100, 100, RENDERER_COLOR_BLACK);
+        /* 封面背景 */
+        renderer_fill_rect(x, book_y, 100, 80, RENDERER_COLOR_WHITE);
+        renderer_draw_rect(x, book_y, 100, 80, RENDERER_COLOR_BLACK);
 
         /* 书本图标 */
-        renderer_fill_rect(x + 30, y + 25, 40, 50, RENDERER_COLOR_BLACK);
-        renderer_fill_rect(x + 32, y + 27, 36, 46, RENDERER_COLOR_WHITE);
+        renderer_fill_rect(x + 30, book_y + 15, 40, 50, RENDERER_COLOR_BLACK);
+        renderer_fill_rect(x + 32, book_y + 17, 36, 46, RENDERER_COLOR_WHITE);
 
         /* 选中框 */
         if (i == s_selected_book) {
-            renderer_draw_rect(x - 2, y - 2, 104, 104, RENDERER_COLOR_RED);
+            renderer_draw_rect(x - 2, book_y - 2, 104, 84, RENDERER_COLOR_RED);
         }
 
         /* 书名 */
         char title[16];
         snprintf(title, sizeof(title), "Book %d", i + 1);
-        renderer_draw_text(x + 10, y + 105, title, RENDERER_COLOR_BLACK);
+        renderer_draw_text(x + 20, book_y + 82, title, RENDERER_COLOR_BLACK);
     }
 
     /* 翻页指示 */
-    renderer_draw_text(20, 280, "1/1  Total: 6", RENDERER_COLOR_BLACK);
+    renderer_draw_text(20, CONTENT_Y + CONTENT_H - 25, "1/1  Total: 6 books", RENDERER_COLOR_BLACK);
 }
 
-/* 绘制阅读器页 */
-static void draw_reader_page(void)
+/* 绘制设置内容 */
+static void draw_settings_content(void)
 {
-    renderer_clear(RENDERER_COLOR_WHITE);
-    draw_status_bar();
+    int y = CONTENT_Y + 10;
 
-    /* 章节标题 */
-    renderer_draw_text(20, 25, "Chapter 1: The Beginning", RENDERER_COLOR_BLACK);
+    /* 标题 */
+    renderer_draw_text(20, y, "Settings", RENDERER_COLOR_BLACK);
 
     /* 分割线 */
-    renderer_fill_rect(20, 42, RENDERER_WIDTH - 40, 1, RENDERER_COLOR_BLACK);
+    renderer_fill_rect(20, y + 20, RENDERER_WIDTH - 40, 1, RENDERER_COLOR_BLACK);
+
+    /* 阅读设置 */
+    renderer_draw_text(20, y + 30, "[Reading]", RENDERER_COLOR_RED);
+    renderer_draw_text(20, y + 50, "  Font: SourceHanSerif", RENDERER_COLOR_BLACK);
+    renderer_draw_text(20, y + 68, "  Size: 20px", RENDERER_COLOR_BLACK);
+    renderer_draw_text(20, y + 86, "  Line Spacing: 1.5", RENDERER_COLOR_BLACK);
+    renderer_draw_text(20, y + 104, "  Char Spacing: 1px", RENDERER_COLOR_BLACK);
+    renderer_draw_text(20, y + 122, "  Margin: 8px", RENDERER_COLOR_BLACK);
+
+    /* 分割线 */
+    renderer_fill_rect(20, y + 142, RENDERER_WIDTH - 40, 1, RENDERER_COLOR_BLACK);
+
+    /* 系统设置 */
+    renderer_draw_text(20, y + 152, "[System]", RENDERER_COLOR_RED);
+    renderer_draw_text(20, y + 172, "  Sleep Layout: Clock", RENDERER_COLOR_BLACK);
+    renderer_draw_text(20, y + 190, "  Sleep Timeout: 5 min", RENDERER_COLOR_BLACK);
+    renderer_draw_text(20, y + 208, "  Screen Rotation: 0", RENDERER_COLOR_BLACK);
+    renderer_draw_text(20, y + 226, "  WiFi: Connected", RENDERER_COLOR_BLACK);
+    renderer_draw_text(20, y + 244, "  Version: v0.5.0", RENDERER_COLOR_BLACK);
+}
+
+/* 绘制阅读器内容 */
+static void draw_reader_content(void)
+{
+    int y = CONTENT_Y + 5;
+
+    /* 章节标题 */
+    renderer_draw_text(20, y, "Chapter 1: The Beginning", RENDERER_COLOR_BLACK);
+
+    /* 分割线 */
+    renderer_fill_rect(20, y + 18, RENDERER_WIDTH - 40, 1, RENDERER_COLOR_BLACK);
 
     /* 模拟文本内容 */
     const char *lines[] = {
         "It was a dark and stormy",
         "night. The wind howled",
-        "through the trees, and",
-        "the rain beat against",
-        "the windows. Inside, a",
-        "small lamp flickered on",
-        "a wooden desk, casting",
-        "long shadows across the",
-        "room. A young reader sat",
-        "quietly, lost in a book.",
+        "through the trees as the",
+        "rain beat against the old",
+        "windows. Inside, a small",
+        "lamp flickered on a worn",
+        "wooden desk, casting long",
+        "shadows across the room.",
+        "",
+        "A young reader sat in the",
+        "corner, completely lost in",
+        "the pages of a book. The",
+        "world outside faded away",
+        "as the story unfolded...",
     };
 
-    for (int i = 0; i < 10; i++) {
-        renderer_draw_text(20, 50 + i * 18, lines[i], RENDERER_COLOR_BLACK);
+    for (int i = 0; i < 14; i++) {
+        if (lines[i][0] != '\0') {
+            renderer_draw_text(20, y + 25 + i * 16, lines[i], RENDERER_COLOR_BLACK);
+        }
     }
 
     /* 进度条 */
-    int bar_x = 100, bar_y = 240, bar_w = 200;
+    int bar_x = 20, bar_y = CONTENT_Y + CONTENT_H - 30;
+    int bar_w = RENDERER_WIDTH - 40;
     int progress = (s_current_reader_page * 100) / s_total_reader_pages;
+
     renderer_draw_rect(bar_x, bar_y, bar_w, 10, RENDERER_COLOR_BLACK);
     renderer_fill_rect(bar_x + 2, bar_y + 2, (bar_w - 4) * progress / 100, 6, RENDERER_COLOR_BLACK);
 
@@ -140,64 +242,46 @@ static void draw_reader_page(void)
     char page_str[32];
     snprintf(page_str, sizeof(page_str), "Page %d/%d (%d%%)",
              s_current_reader_page + 1, s_total_reader_pages, progress);
-    renderer_draw_text(130, 260, page_str, RENDERER_COLOR_BLACK);
-
-    /* 提示 */
-    renderer_draw_text(20, 280, "< PREV", RENDERER_COLOR_BLACK);
-    renderer_draw_text(RENDERER_WIDTH - 80, 280, "NEXT >", RENDERER_COLOR_BLACK);
+    int text_w = renderer_text_width(page_str);
+    renderer_draw_text((RENDERER_WIDTH - text_w) / 2, bar_y + 14, page_str, RENDERER_COLOR_BLACK);
 }
 
-/* 绘制设置页 */
-static void draw_settings_page(void)
+/* 渲染主体内容 */
+static void draw_content(void)
+{
+    /* 清除主体区域 */
+    renderer_fill_rect(0, CONTENT_Y, RENDERER_WIDTH, CONTENT_H, RENDERER_COLOR_WHITE);
+
+    /* 左右边框 */
+    renderer_fill_rect(0, CONTENT_Y, 1, CONTENT_H, RENDERER_COLOR_BLACK);
+    renderer_fill_rect(RENDERER_WIDTH - 1, CONTENT_Y, 1, CONTENT_H, RENDERER_COLOR_BLACK);
+
+    if (s_in_reader) {
+        draw_reader_content();
+    } else {
+        switch (s_current_menu) {
+        case MENU_HOME:
+            draw_home_content();
+            break;
+        case MENU_BOOKSHELF:
+            draw_bookshelf_content();
+            break;
+        case MENU_SETTINGS:
+            draw_settings_content();
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+/* 完整渲染 */
+static void render(void)
 {
     renderer_clear(RENDERER_COLOR_WHITE);
     draw_status_bar();
-
-    renderer_draw_text(20, 25, "[Reading Settings]", RENDERER_COLOR_RED);
-
-    /* 分割线 */
-    renderer_fill_rect(20, 42, RENDERER_WIDTH - 40, 1, RENDERER_COLOR_BLACK);
-
-    renderer_draw_text(20, 55, "> Font: SourceHanSerif", RENDERER_COLOR_RED);
-    renderer_draw_text(20, 75, "  Size: 20px", RENDERER_COLOR_BLACK);
-    renderer_draw_text(20, 95, "  Line: 1.5", RENDERER_COLOR_BLACK);
-    renderer_draw_text(20, 115, "  Char: 1px", RENDERER_COLOR_BLACK);
-    renderer_draw_text(20, 135, "  Margin: 8px", RENDERER_COLOR_BLACK);
-
-    renderer_draw_text(20, 165, "[System Settings]", RENDERER_COLOR_RED);
-
-    /* 分割线 */
-    renderer_fill_rect(20, 182, RENDERER_WIDTH - 40, 1, RENDERER_COLOR_BLACK);
-
-    renderer_draw_text(20, 195, "  Sleep: Clock+Weather", RENDERER_COLOR_BLACK);
-    renderer_draw_text(20, 215, "  Rotation: 0 deg", RENDERER_COLOR_BLACK);
-    renderer_draw_text(20, 235, "  Timeout: 5 min", RENDERER_COLOR_BLACK);
-    renderer_draw_text(20, 255, "  Version: v0.5.0", RENDERER_COLOR_BLACK);
-
-    /* 提示 */
-    renderer_draw_text(20, 280, "[ESC] Back", RENDERER_COLOR_BLACK);
-}
-
-/* 渲染当前页面 */
-static void render_current_page(void)
-{
-    switch (s_current_page) {
-    case SIM_PAGE_HOME:
-        draw_home_page();
-        break;
-    case SIM_PAGE_BOOKSHELF:
-        draw_bookshelf_page();
-        break;
-    case SIM_PAGE_READER:
-        draw_reader_page();
-        break;
-    case SIM_PAGE_SETTINGS:
-        draw_settings_page();
-        break;
-    default:
-        break;
-    }
-
+    draw_content();
+    draw_menu_bar();
     renderer_display();
 }
 
@@ -206,42 +290,57 @@ static void on_key(RendererKeyId key, RendererKeyEvent event)
 {
     if (event != RENDERER_KEY_EVT_SHORT) return;
 
+    /* 阅读器模式下的按键处理 */
+    if (s_in_reader) {
+        switch (key) {
+        case RENDERER_KEY_PWR:
+            s_in_reader = false;
+            break;
+        case RENDERER_KEY_PREV:
+            if (s_current_reader_page > 0) s_current_reader_page--;
+            break;
+        case RENDERER_KEY_NEXT:
+            if (s_current_reader_page < s_total_reader_pages - 1) s_current_reader_page++;
+            break;
+        case RENDERER_KEY_HOME:
+            s_in_reader = false;
+            break;
+        default:
+            break;
+        }
+        render();
+        return;
+    }
+
+    /* 菜单模式下的按键处理 */
     switch (key) {
     case RENDERER_KEY_PWR:
-        /* 返回主页 */
-        s_current_page = SIM_PAGE_HOME;
+        /* ESC 退出 */
         break;
 
     case RENDERER_KEY_PREV:
-        if (s_current_page == SIM_PAGE_BOOKSHELF) {
-            if (s_selected_book > 0) s_selected_book--;
-        } else if (s_current_page == SIM_PAGE_READER) {
-            if (s_current_reader_page > 0) s_current_reader_page--;
-        } else if (s_current_page == SIM_PAGE_SETTINGS) {
-            /* 上移菜单项 */
+        /* 左移菜单 */
+        if (s_current_menu > 0) {
+            s_current_menu--;
+        } else {
+            s_current_menu = MENU_COUNT - 1;
         }
         break;
 
     case RENDERER_KEY_NEXT:
-        if (s_current_page == SIM_PAGE_HOME) {
-            s_current_page = SIM_PAGE_BOOKSHELF;
-        } else if (s_current_page == SIM_PAGE_BOOKSHELF) {
-            if (s_selected_book < 5) s_selected_book++;
-        } else if (s_current_page == SIM_PAGE_READER) {
-            if (s_current_reader_page < s_total_reader_pages - 1) s_current_reader_page++;
-        } else if (s_current_page == SIM_PAGE_SETTINGS) {
-            /* 下移菜单项 */
+        /* 右移菜单 */
+        if (s_current_menu < MENU_COUNT - 1) {
+            s_current_menu++;
+        } else {
+            s_current_menu = MENU_HOME;
         }
         break;
 
     case RENDERER_KEY_HOME:
-        if (s_current_page == SIM_PAGE_BOOKSHELF) {
-            s_current_page = SIM_PAGE_READER;
+        /* 确认/进入 */
+        if (s_current_menu == MENU_BOOKSHELF) {
+            s_in_reader = true;
             s_current_reader_page = 0;
-        } else if (s_current_page == SIM_PAGE_READER) {
-            s_current_page = SIM_PAGE_BOOKSHELF;
-        } else if (s_current_page == SIM_PAGE_HOME) {
-            s_current_page = SIM_PAGE_SETTINGS;
         }
         break;
 
@@ -249,7 +348,7 @@ static void on_key(RendererKeyId key, RendererKeyEvent event)
         break;
     }
 
-    render_current_page();
+    render();
 }
 
 int main(int argc, char *argv[])
@@ -258,6 +357,15 @@ int main(int argc, char *argv[])
     (void)argv;
 
     printf("=== 妙阅 E-Reader PC 仿真 ===\n\n");
+    printf("布局:\n");
+    printf("  顶部: 状态栏 (时间/日期/电量)\n");
+    printf("  中间: 主体内容区域\n");
+    printf("  底部: 菜单栏 (HOME/SHELF/SET)\n\n");
+    printf("按键:\n");
+    printf("  ESC   - 退出\n");
+    printf("  LEFT  - 上一个菜单\n");
+    printf("  RIGHT - 下一个菜单\n");
+    printf("  ENTER - 确认/进入\n\n");
 
     /* 初始化渲染器 */
     if (renderer_init("妙阅 E-Reader 仿真") != 0) {
@@ -268,23 +376,19 @@ int main(int argc, char *argv[])
     /* 设置按键回调 */
     renderer_set_key_callback(on_key);
 
-    /* 渲染初始页面 */
-    render_current_page();
+    /* 渲染初始界面 */
+    render();
 
     /* 事件循环 */
-    printf("\n开始事件循环...\n");
-    printf("按 ESC 退出\n");
+    printf("开始事件循环...\n");
     while (1) {
         if (renderer_poll_events() != 0) {
             break;
         }
-        renderer_delay(16);  /* ~60fps */
+        renderer_delay(16);
     }
 
-    /* 清理 */
     printf("退出仿真\n");
-    renderer_sleep();
-
     return 0;
 }
 
