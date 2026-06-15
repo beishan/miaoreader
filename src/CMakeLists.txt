@@ -3,6 +3,7 @@ idf_component_register(
          "engine/config.c"
          "engine/event_bus.c"
          "engine/typesetter.c"
+         "engine/book_parser.c"
          "hal/epd.c"
          "hal/keys.c"
          "hal/battery.c"
@@ -12,5 +13,5 @@ idf_component_register(
          "ui/widget.c"
          "ui/status_bar.c"
     INCLUDE_DIRS "."
-    REQUIRES driver esp_wifi esp_netif nvs_flash esp_timer freetype
+    REQUIRES driver esp_wifi esp_netif nvs_flash esp_timer freetype espressif__cjson
 )
