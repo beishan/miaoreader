@@ -5,6 +5,7 @@
 #include "engine/config.h"
 #include "engine/event_bus.h"
 #include "engine/typesetter.h"
+#include "engine/power_mgr.h"
 #include "hal/epd.h"
 #include "hal/keys.h"
 #include "hal/battery.h"
@@ -14,6 +15,7 @@
 #include "net/sntp.h"
 #include "net/weather.h"
 #include "net/web_server.h"
+#include "net/ota.h"
 #include "ui/page_mgr.h"
 #include "ui/widget.h"
 #include "ui/status_bar.h"
@@ -21,6 +23,7 @@
 #include "ui/page_bookshelf.h"
 #include "ui/page_reader.h"
 #include "ui/page_settings.h"
+#include "ui/page_sleep.h"
 
 static const char *TAG = "main";
 
@@ -79,6 +82,14 @@ static void wifi_connect_task(void *arg)
     vTaskDelete(NULL);
 }
 
+/* 按键事件处理：重置空闲计时器 */
+static void key_event_handler(EventType type, void *data)
+{
+    if (type == EVT_KEY) {
+        power_mgr_reset_idle();
+    }
+}
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "妙阅 电子书阅读器启动");
@@ -112,22 +123,32 @@ void app_main(void)
         .charSpacing = 0, .margin = 12,
         .pageWidth = 376, .pageHeight = 262,
     };
-    typesetter_register_font(0, "/sd/fonts/SourceHanSerif.ttf");
-    typesetter_register_font(1, "/sd/fonts/SourceHanSans.ttf");
-    typesetter_register_font(2, "/sd/fonts/LXGWWenKai.ttf");
+    typesetter_register_font(0, "/sdcard/fonts/SourceHanSerif.ttf");
+    typesetter_register_font(1, "/sdcard/fonts/SourceHanSans.ttf");
+    typesetter_register_font(2, "/sdcard/fonts/LXGWWenKai.ttf");
     typesetter_init(&tcfg);
 
     /* WiFi 管理器初始化 */
     ESP_ERROR_CHECK(wifi_mgr_init());
+
+    /* OTA 初始化 */
+    ESP_ERROR_CHECK(ota_init());
+
+    /* 电源管理器初始化 */
+    ESP_ERROR_CHECK(power_mgr_init());
 
     /* 注册页面 */
     page_mgr_register(&page_home_vtbl);
     page_mgr_register(&page_bookshelf_vtbl);
     page_mgr_register(&page_reader_vtbl);
     page_mgr_register(&page_settings_vtbl);
+    page_mgr_register(&page_sleep_vtbl);
 
     /* 初始化按键：把事件转给 page_mgr */
     keys_init(page_mgr_handle_key);
+
+    /* 订阅按键事件，重置空闲计时器 */
+    event_bus_subscribe(EVT_KEY, key_event_handler);
 
     /* 加载系统配置 */
     SysConfig sys_cfg;

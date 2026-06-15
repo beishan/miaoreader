@@ -4,6 +4,7 @@ idf_component_register(
          "engine/event_bus.c"
          "engine/typesetter.c"
          "engine/book_parser.c"
+         "engine/power_mgr.c"
          "hal/epd.c"
          "hal/keys.c"
          "hal/battery.c"
@@ -13,6 +14,7 @@ idf_component_register(
          "net/sntp.c"
          "net/weather.c"
          "net/web_server.c"
+         "net/ota.c"
          "ui/page_mgr.c"
          "ui/widget.c"
          "ui/status_bar.c"
@@ -20,6 +22,7 @@ idf_component_register(
          "ui/page_bookshelf.c"
          "ui/page_reader.c"
          "ui/page_settings.c"
+         "ui/page_sleep.c"
     INCLUDE_DIRS "."
-    REQUIRES driver esp_wifi esp_netif nvs_flash esp_timer freetype espressif__cjson esp_http_server esp_http_client esp_event
+    REQUIRES driver esp_wifi esp_netif nvs_flash esp_timer freetype espressif__cjson esp_http_server esp_http_client esp_event app_update
 )

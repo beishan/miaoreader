@@ -12,6 +12,8 @@
 #include "engine/book_parser.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "nvs_flash.h"
+#include "nvs.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -38,6 +40,58 @@ static void free_book(void)
     s_page_count = 0;
     s_text_len = 0;
     s_current_page = 0;
+}
+
+/* 保存阅读进度到 NVS */
+static void save_reading_progress(void)
+{
+    if (s_current_path[0] == '\0' || s_current_page == 0) return;
+
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open("reader_progress", NVS_READWRITE, &handle);
+    if (err != ESP_OK) return;
+
+    /* 使用书名作为 key（简化：用文件路径的 hash） */
+    char key[16];
+    uint32_t h = 2166136261u;
+    for (const char *p = s_current_path; *p; p++) {
+        h ^= (uint8_t)*p;
+        h *= 16777619u;
+    }
+    snprintf(key, sizeof(key), "pg_%08lx", (unsigned long)h);
+
+    nvs_set_u32(handle, key, s_current_page);
+    nvs_commit(handle);
+    nvs_close(handle);
+
+    ESP_LOGI(TAG, "保存阅读进度: %s -> 第 %lu 页", key, (unsigned long)s_current_page);
+}
+
+/* 从 NVS 加载阅读进度 */
+static uint32_t load_reading_progress(const char *file_path)
+{
+    if (!file_path || file_path[0] == '\0') return 0;
+
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open("reader_progress", NVS_READONLY, &handle);
+    if (err != ESP_OK) return 0;
+
+    char key[16];
+    uint32_t h = 2166136261u;
+    for (const char *p = file_path; *p; p++) {
+        h ^= (uint8_t)*p;
+        h *= 16777619u;
+    }
+    snprintf(key, sizeof(key), "pg_%08lx", (unsigned long)h);
+
+    uint32_t page = 0;
+    nvs_get_u32(handle, key, &page);
+    nvs_close(handle);
+
+    if (page > 0) {
+        ESP_LOGI(TAG, "恢复阅读进度: %s -> 第 %lu 页", key, (unsigned long)page);
+    }
+    return page;
 }
 
 static esp_err_t load_book(const char *file_path)
@@ -77,9 +131,20 @@ static void on_enter(void)
 {
     ESP_LOGI(TAG, "进入阅读器");
     s_partial_count = 0;
+
+    /* 如果有书籍路径，尝试恢复阅读进度 */
+    if (s_current_path[0] != '\0' && s_book_text) {
+        uint32_t saved_page = load_reading_progress(s_current_path);
+        if (saved_page > 0 && saved_page < s_page_count) {
+            s_current_page = saved_page;
+            ESP_LOGI(TAG, "恢复到第 %lu 页", (unsigned long)s_current_page);
+        }
+        return;
+    }
+
     /* 演示：从占位路径加载（生产环境由 page_bookshelf 注入当前书路径） */
     if (!s_book_text && s_current_path[0] == '\0') {
-        const char *demo = "/sd/books/placeholder_1.txt";
+        const char *demo = "/sdcard/books/placeholder_1.txt";
         if (load_book(demo) != ESP_OK) {
             /* 失败时填入示例文本 */
             s_book_text = strdup("示例文本\n\n这是一本占位书籍。\n\n按 NEXT 翻页。\n\n按 PREV 返回。\n\n按 HOME 返回书架。");
@@ -130,6 +195,12 @@ static void on_render(void)
     }
 }
 
+static void page_reader_on_exit(void)
+{
+    ESP_LOGI(TAG, "退出阅读器");
+    save_reading_progress();
+}
+
 static void on_key(KeyId key, KeyEvent event)
 {
     if (key == KEY_PREV) {
@@ -156,7 +227,7 @@ static void on_key(KeyId key, KeyEvent event)
 const PageVtbl page_reader_vtbl = {
     .id = PAGE_READER,
     .on_enter = on_enter,
-    .on_exit = NULL,
+    .on_exit = page_reader_on_exit,
     .on_key = on_key,
     .on_render = on_render,
 };

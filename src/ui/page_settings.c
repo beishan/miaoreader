@@ -203,6 +203,19 @@ static void cycle_reading(int delta)
 
 static void on_key(KeyId key, KeyEvent event)
 {
+    /* 长按切换值（阅读排版设置） */
+    if (event == KEY_EVT_LONG && s_sub == SUB_READING) {
+        if (key == KEY_PREV) {
+            cycle_reading(-1);
+            on_render();
+        } else if (key == KEY_NEXT) {
+            cycle_reading(+1);
+            on_render();
+        }
+        return;
+    }
+
+    /* 短按事件 */
     if (event != KEY_EVT_SHORT) return;
 
     if (key == KEY_PREV) {
@@ -222,11 +235,6 @@ static void on_key(KeyId key, KeyEvent event)
         on_render();
     } else if (key == KEY_PWR) {
         page_mgr_switch(PAGE_HOME);
-    } else if (event == KEY_EVT_LONG && s_sub == SUB_READING) {
-        /* 长按 PREV/NEXT 切换当前项的值（实际由 key 区分） */
-        if (key == KEY_PREV)      cycle_reading(-1);
-        else if (key == KEY_NEXT) cycle_reading(+1);
-        on_render();
     }
 }
 
