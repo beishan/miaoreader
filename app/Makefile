@@ -1,8 +1,8 @@
 # 妙阅 E-Reader PC 仿真 Makefile
 
 CC = gcc
-CFLAGS = -Wall -Wextra -O2 -DPC_SIMULATION
-LDFLAGS = -lSDL2
+CFLAGS = -Wall -Wextra -O2 -DPC_SIMULATION $(shell freetype-config --cflags)
+LDFLAGS = -lSDL2 $(shell freetype-config --libs)
 
 TARGET = reader_sim
 SOURCES = sim_main.c renderer_sdl.c
