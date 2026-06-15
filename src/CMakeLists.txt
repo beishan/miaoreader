@@ -9,6 +9,10 @@ idf_component_register(
          "hal/battery.c"
          "hal/rtc.c"
          "hal/sd_card.c"
+         "hal/wifi_mgr.c"
+         "net/sntp.c"
+         "net/weather.c"
+         "net/web_server.c"
          "ui/page_mgr.c"
          "ui/widget.c"
          "ui/status_bar.c"
@@ -17,5 +21,5 @@ idf_component_register(
          "ui/page_reader.c"
          "ui/page_settings.c"
     INCLUDE_DIRS "."
-    REQUIRES driver esp_wifi esp_netif nvs_flash esp_timer freetype espressif__cjson
+    REQUIRES driver esp_wifi esp_netif nvs_flash esp_timer freetype espressif__cjson esp_http_server esp_http_client esp_event
 )

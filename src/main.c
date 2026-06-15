@@ -7,6 +7,13 @@
 #include "engine/typesetter.h"
 #include "hal/epd.h"
 #include "hal/keys.h"
+#include "hal/battery.h"
+#include "hal/rtc.h"
+#include "hal/sd_card.h"
+#include "hal/wifi_mgr.h"
+#include "net/sntp.h"
+#include "net/weather.h"
+#include "net/web_server.h"
 #include "ui/page_mgr.h"
 #include "ui/widget.h"
 #include "ui/status_bar.h"
@@ -16,6 +23,61 @@
 #include "ui/page_settings.h"
 
 static const char *TAG = "main";
+
+/* WiFi 连接任务 */
+static void wifi_connect_task(void *arg)
+{
+    SysConfig *cfg = (SysConfig *)arg;
+
+    /* 等待系统初始化完成 */
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    if (!cfg->initialized || cfg->ssid[0] == '\0') {
+        ESP_LOGI(TAG, "WiFi 未配置，启动 AP 配网模式");
+        wifi_mgr_start_ap();
+        web_server_start();
+        vTaskDelete(NULL);
+        return;
+    }
+
+    ESP_LOGI(TAG, "尝试连接 WiFi: %s", cfg->ssid);
+    esp_err_t err = wifi_mgr_connect_sta(cfg->ssid, cfg->password);
+
+    /* 等待连接结果（最多 15 秒） */
+    int timeout = 30;
+    while (timeout > 0 && !wifi_mgr_is_connected()) {
+        vTaskDelay(pdMS_TO_TICKS(500));
+        timeout--;
+    }
+
+    if (wifi_mgr_is_connected()) {
+        char ip[16];
+        wifi_mgr_get_ip(ip, sizeof(ip));
+        ESP_LOGI(TAG, "WiFi 已连接: %s", ip);
+
+        /* 同步时间 */
+        ESP_LOGI(TAG, "同步 SNTP 时间...");
+        sntp_sync_init();
+        sntp_force_sync();
+
+        /* 刷新天气 */
+        ESP_LOGI(TAG, "刷新天气数据...");
+        weather_init();
+        weather_refresh();
+
+        /* 启动网页服务器 */
+        ESP_LOGI(TAG, "启动网页服务器...");
+        web_server_init();
+        web_server_start();
+    } else {
+        ESP_LOGW(TAG, "WiFi 连接超时，启动 AP 配网模式");
+        wifi_mgr_start_ap();
+        web_server_init();
+        web_server_start();
+    }
+
+    vTaskDelete(NULL);
+}
 
 void app_main(void)
 {
@@ -35,6 +97,9 @@ void app_main(void)
 
     /* 硬件初始化 */
     ESP_ERROR_CHECK(epd_init());
+    ESP_ERROR_CHECK(ds3231_init());
+    ESP_ERROR_CHECK(battery_init());
+    ESP_ERROR_CHECK(sd_card_init());
     widget_init();
 
     /* UI 初始化 */
@@ -52,6 +117,9 @@ void app_main(void)
     typesetter_register_font(2, "/sd/fonts/LXGWWenKai.ttf");
     typesetter_init(&tcfg);
 
+    /* WiFi 管理器初始化 */
+    ESP_ERROR_CHECK(wifi_mgr_init());
+
     /* 注册页面 */
     page_mgr_register(&page_home_vtbl);
     page_mgr_register(&page_bookshelf_vtbl);
@@ -60,6 +128,13 @@ void app_main(void)
 
     /* 初始化按键：把事件转给 page_mgr */
     keys_init(page_mgr_handle_key);
+
+    /* 加载系统配置 */
+    SysConfig sys_cfg;
+    config_load_sys(&sys_cfg);
+
+    /* 启动 WiFi 连接任务 */
+    xTaskCreate(wifi_connect_task, "wifi_connect", 4096, &sys_cfg, 5, NULL);
 
     /* 进入主页 */
     page_mgr_switch(PAGE_HOME);

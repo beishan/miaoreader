@@ -70,4 +70,31 @@ typedef enum {
     EVT_BATTERY,        // 电量变化
     EVT_SLEEP,          // 进入休眠
     EVT_WAKE,           // 唤醒
+    EVT_WEATHER,        // 天气数据更新
 } EventType;
+
+// 天气数据结构
+typedef struct {
+    char city[32];          // 城市名
+    char condition[32];     // 天气状况："晴"、"多云"、"小雨"
+    int  temp_now;          // 当前温度 (°C)
+    int  temp_high;         // 最高温
+    int  temp_low;          // 最低温
+    int  humidity;          // 湿度 (%)
+    int  wind_speed;        // 风速 (km/h)
+    char wind_dir[16];      // 风向
+    char aqi[16];           // 空气质量等级
+    int  aqi_value;         // AQI 数值
+    uint32_t update_time;   // 更新时间戳
+} WeatherData;
+
+typedef struct {
+    char date[16];          // 日期 MM-DD
+    char condition[32];     // 天气状况
+    int  temp_high;         // 最高温
+    int  temp_low;          // 最低温
+} WeatherDayForecast;
+
+typedef struct {
+    WeatherDayForecast days[3];  // 3 天预报
+} WeatherForecast;
