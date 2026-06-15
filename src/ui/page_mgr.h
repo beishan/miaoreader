@@ -14,3 +14,4 @@ esp_err_t page_mgr_init(void);
 esp_err_t page_mgr_register(const PageVtbl *page);
 esp_err_t page_mgr_switch(PageId id);
 PageId page_mgr_current(void);
+void page_mgr_handle_key(KeyId key, KeyEvent event);

@@ -6,9 +6,11 @@
 #include "engine/event_bus.h"
 #include "engine/typesetter.h"
 #include "hal/epd.h"
+#include "hal/keys.h"
 #include "ui/page_mgr.h"
 #include "ui/widget.h"
 #include "ui/status_bar.h"
+#include "ui/page_home.h"
 
 static const char *TAG = "main";
 
@@ -47,10 +49,14 @@ void app_main(void)
     typesetter_register_font(2, "/sd/fonts/LXGWWenKai.ttf");
     typesetter_init(&tcfg);
 
-    /* 显示启动画面（状态栏 + 待办：主页） */
-    epd_clear(EPD_COLOR_WHITE);
-    status_bar_render();
-    epd_display_partial();
+    /* 注册页面 */
+    page_mgr_register(&page_home_vtbl);
+
+    /* 初始化按键：把事件转给 page_mgr */
+    keys_init(page_mgr_handle_key);
+
+    /* 进入主页 */
+    page_mgr_switch(PAGE_HOME);
 
     ESP_LOGI(TAG, "初始化完成，进入主循环");
 
