@@ -120,10 +120,18 @@ static esp_err_t load_font_internal(uint8_t fontId)
         fclose(f);
         return ESP_ERR_INVALID_SIZE;
     }
+    ESP_LOGI(TAG, "加载字体: %s (%ld bytes), PSRAM 可用: %u bytes",
+             s_font_paths[fontId], sz,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+
     s_font_buf = heap_caps_malloc(sz, MALLOC_CAP_SPIRAM);
     if (!s_font_buf) {
-        fclose(f);
-        return ESP_ERR_NO_MEM;
+        ESP_LOGE(TAG, "PSRAM 分配失败，尝试内部 SRAM");
+        s_font_buf = malloc(sz);
+        if (!s_font_buf) {
+            fclose(f);
+            return ESP_ERR_NO_MEM;
+        }
     }
     fread(s_font_buf, 1, sz, f);
     fclose(f);
@@ -163,7 +171,8 @@ esp_err_t typesetter_paginate(const char *text, uint32_t textLen,
     /* 估算初始页数 */
     uint32_t est_pages = (textLen / (lines_per_page * 30)) + 1;
     if (est_pages < 4) est_pages = 4;
-    PageIndex *pages = heap_caps_calloc(est_pages, sizeof(PageIndex), MALLOC_CAP_SPIRAM);
+    /* PageIndex 使用内部 SRAM（每页仅 8 字节，1000 页才 8KB，内部 SRAM 更快） */
+    PageIndex *pages = heap_caps_calloc(est_pages, sizeof(PageIndex), MALLOC_CAP_INTERNAL);
     if (!pages) return ESP_ERR_NO_MEM;
 
     uint32_t page_count = 0;
@@ -195,7 +204,7 @@ esp_err_t typesetter_paginate(const char *text, uint32_t textLen,
             if (page_count >= est_pages) {
                 est_pages *= 2;
                 PageIndex *np = heap_caps_realloc(pages,
-                    est_pages * sizeof(PageIndex), MALLOC_CAP_SPIRAM);
+                    est_pages * sizeof(PageIndex), MALLOC_CAP_INTERNAL);
                 if (!np) {
                     free(pages);
                     return ESP_ERR_NO_MEM;

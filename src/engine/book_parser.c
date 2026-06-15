@@ -1,6 +1,6 @@
 /**
  * @file book_parser.c
- * @brief 书籍文件解析：TXT（UTF-8/GBK 自动检测）+ EPUB（最小 ZIP reader）
+ * @brief 书籍文件解析：TXT（UTF-8/GBK 自动检测）+ EPUB（ZIP reader with deflate）
  */
 #include "book_parser.h"
 #include "esp_log.h"
@@ -10,6 +10,8 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <cJSON.h>
+#include "miniz.h"
+#include "gbk_table.h"
 
 static const char *TAG = "book_parser";
 
@@ -19,6 +21,31 @@ static const char *TAG = "book_parser";
 /* 文件魔数：ZIP local file header = "PK\x03\x04" */
 static const uint8_t ZIP_MAGIC[] = {0x50, 0x4B, 0x03, 0x04};
 static const uint8_t UTF8_BOM[]  = {0xEF, 0xBB, 0xBF};
+
+/* 内存分配辅助：优先 PSRAM，fallback 到内部 SRAM */
+static void *smart_malloc(size_t size)
+{
+    void *ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM);
+    if (ptr) return ptr;
+    ESP_LOGW(TAG, "PSRAM 分配失败 (%u bytes)，fallback 到内部 SRAM", (unsigned)size);
+    return malloc(size);
+}
+
+static void *smart_calloc(size_t count, size_t size)
+{
+    void *ptr = heap_caps_calloc(count, size, MALLOC_CAP_SPIRAM);
+    if (ptr) return ptr;
+    ESP_LOGW(TAG, "PSRAM calloc 失败 (%u bytes)，fallback 到内部 SRAM", (unsigned)(count * size));
+    return calloc(count, size);
+}
+
+static void *smart_realloc(void *ptr, size_t size)
+{
+    void *new_ptr = heap_caps_realloc(ptr, size, MALLOC_CAP_SPIRAM);
+    if (new_ptr) return new_ptr;
+    ESP_LOGW(TAG, "PSRAM realloc 失败 (%u bytes)，fallback 到内部 SRAM", (unsigned)size);
+    return realloc(ptr, size);
+}
 
 BookFormat book_detect_format(const char *file_path)
 {
@@ -60,7 +87,7 @@ static bool looks_like_utf8(const uint8_t *buf, size_t n)
     return multibyte == 0;
 }
 
-/* GBK → UTF-8 转换（单字符最长 3 字节 UTF-8） */
+/* GBK → UTF-8 转换（使用精确映射表） */
 static int gbk_to_utf8(uint8_t c1, uint8_t c2, char *out)
 {
     if (c1 < 0x80) {
@@ -68,8 +95,13 @@ static int gbk_to_utf8(uint8_t c1, uint8_t c2, char *out)
         return 1;
     }
     if (c1 >= 0x81 && c1 <= 0xFE && c2 >= 0x40 && c2 <= 0xFE && c2 != 0x7F) {
-        /* GBK 双字节 → Unicode 近似映射（简化：仅映射 ASCII 区段） */
-        uint32_t cp = 0x4E00 + ((c1 - 0x81) * 191 + (c2 - 0x40)) % 20902;
+        int row = c1 - 0x81;
+        int col = c2 - 0x40 - (c2 > 0x7F ? 1 : 0);
+        uint32_t cp = gbk_to_unicode[row * 190 + col];
+        if (cp == 0) {
+            out[0] = '?';
+            return 1;
+        }
         if (cp < 0x80) {
             out[0] = cp;
             return 1;
@@ -106,7 +138,7 @@ static esp_err_t parse_txt(const char *file_path, char **text_out, uint32_t *len
         return ESP_ERR_INVALID_SIZE;
     }
 
-    uint8_t *raw = heap_caps_malloc(sz, MALLOC_CAP_SPIRAM);
+    uint8_t *raw = smart_malloc(sz);
     if (!raw) { fclose(f); return ESP_ERR_NO_MEM; }
     fread(raw, 1, sz, f);
     fclose(f);
@@ -122,7 +154,7 @@ static esp_err_t parse_txt(const char *file_path, char **text_out, uint32_t *len
     char *out;
     if (is_gbk) {
         /* GBK → UTF-8：最坏 1.5x 膨胀 */
-        out = heap_caps_calloc(sz * 3 / 2 + 4, 1, MALLOC_CAP_SPIRAM);
+        out = smart_calloc(sz * 3 / 2 + 4, 1);
         if (!out) { free(raw); return ESP_ERR_NO_MEM; }
         size_t op = 0;
         for (size_t i = start; i < (size_t)sz; ) {
@@ -144,7 +176,7 @@ static esp_err_t parse_txt(const char *file_path, char **text_out, uint32_t *len
     } else {
         /* 已是 UTF-8：去掉 BOM 后拷贝 */
         size_t text_len = sz - start;
-        out = heap_caps_malloc(text_len + 1, MALLOC_CAP_SPIRAM);
+        out = smart_malloc(text_len + 1);
         if (!out) { free(raw); return ESP_ERR_NO_MEM; }
         memcpy(out, raw + start, text_len);
         out[text_len] = '\0';
@@ -157,11 +189,12 @@ static esp_err_t parse_txt(const char *file_path, char **text_out, uint32_t *len
     return ESP_OK;
 }
 
-/* ZIP 解析（仅支持 stored/method=0 的条目） */
+/* ZIP 解析（支持 stored + deflate） */
 typedef struct {
     char     name[128];
     uint32_t offset;
     uint32_t comp_size;
+    uint32_t uncomp_size;
     uint16_t comp_method;
 } ZipEntry;
 
@@ -174,6 +207,7 @@ static int find_zip_entry(const uint8_t *data, size_t size, const char *name, Zi
         if (memcmp(data + i, CD_SIG, 4) != 0) continue;
         uint16_t comp_method  = data[i+10] | (data[i+11] << 8);
         uint32_t comp_size    = data[i+20] | (data[i+21] << 8) | (data[i+22] << 16) | (data[i+23] << 24);
+        uint32_t uncomp_size  = data[i+24] | (data[i+25] << 8) | (data[i+26] << 16) | (data[i+27] << 24);
         uint32_t fname_len    = data[i+28] | (data[i+29] << 8);
         uint32_t extra_len    = data[i+30] | (data[i+31] << 8);
         uint32_t comment_len  = data[i+32] | (data[i+33] << 8);
@@ -184,6 +218,7 @@ static int find_zip_entry(const uint8_t *data, size_t size, const char *name, Zi
             strncpy(out->name, name, sizeof(out->name) - 1);
             out->name[sizeof(out->name) - 1] = '\0';
             out->comp_size = comp_size;
+            out->uncomp_size = uncomp_size;
             out->comp_method = comp_method;
             out->offset = local_offset;
             return 0;
@@ -193,13 +228,9 @@ static int find_zip_entry(const uint8_t *data, size_t size, const char *name, Zi
     return -1;
 }
 
-/* 读取 ZIP 条目（仅 stored） */
+/* 读取 ZIP 条目（支持 stored + deflate） */
 static esp_err_t read_zip_entry(const uint8_t *data, size_t size, const ZipEntry *e, char **out, uint32_t *out_len)
 {
-    if (e->comp_method != 0) {
-        ESP_LOGW(TAG, "ZIP 条目 %s 压缩方法 %u 不支持", e->name, e->comp_method);
-        return ESP_ERR_NOT_SUPPORTED;
-    }
     /* 本地文件头：30 + fname + extra */
     if (e->offset + 30 > size) return ESP_ERR_INVALID_SIZE;
     uint16_t fname_len = data[e->offset + 26] | (data[e->offset + 27] << 8);
@@ -207,12 +238,36 @@ static esp_err_t read_zip_entry(const uint8_t *data, size_t size, const ZipEntry
     uint32_t data_off  = e->offset + 30 + fname_len + extra_len;
     if (data_off + e->comp_size > size) return ESP_ERR_INVALID_SIZE;
 
-    char *buf = heap_caps_malloc(e->comp_size + 1, MALLOC_CAP_SPIRAM);
-    if (!buf) return ESP_ERR_NO_MEM;
-    memcpy(buf, data + data_off, e->comp_size);
-    buf[e->comp_size] = '\0';
-    *out = buf;
-    *out_len = e->comp_size;
+    if (e->comp_method == 0) {
+        /* stored: 直接拷贝 */
+        char *buf = smart_malloc(e->comp_size + 1);
+        if (!buf) return ESP_ERR_NO_MEM;
+        memcpy(buf, data + data_off, e->comp_size);
+        buf[e->comp_size] = '\0';
+        *out = buf;
+        *out_len = e->comp_size;
+    } else if (e->comp_method == 8) {
+        /* deflate: 使用 ROM miniz 解压 */
+        size_t out_buf_len = e->uncomp_size > 0 ? e->uncomp_size + 1 : e->comp_size * 4 + 1;
+        char *buf = smart_malloc(out_buf_len);
+        if (!buf) return ESP_ERR_NO_MEM;
+
+        size_t result = tinfl_decompress_mem_to_mem(buf, out_buf_len - 1,
+            data + data_off, e->comp_size,
+            TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+        if (result == TINFL_DECOMPRESS_MEM_TO_MEM_FAILED) {
+            ESP_LOGE(TAG, "ZIP deflate 解压失败: %s", e->name);
+            free(buf);
+            return ESP_FAIL;
+        }
+        buf[result] = '\0';
+        *out = buf;
+        *out_len = (uint32_t)result;
+        ESP_LOGD(TAG, "ZIP deflate 解压: %s (%u → %u bytes)", e->name, (unsigned)e->comp_size, (unsigned)result);
+    } else {
+        ESP_LOGW(TAG, "ZIP 条目 %s 压缩方法 %u 不支持", e->name, e->comp_method);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     return ESP_OK;
 }
 
@@ -272,7 +327,7 @@ static esp_err_t parse_epub(const char *file_path, char **text_out, uint32_t *le
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
     if (sz <= 0 || sz > MAX_EPUB_SIZE) { fclose(f); return ESP_ERR_INVALID_SIZE; }
-    uint8_t *data = heap_caps_malloc(sz, MALLOC_CAP_SPIRAM);
+    uint8_t *data = smart_malloc(sz);
     if (!data) { fclose(f); return ESP_ERR_NO_MEM; }
     fread(data, 1, sz, f);
     fclose(f);
@@ -332,9 +387,9 @@ static esp_err_t parse_epub(const char *file_path, char **text_out, uint32_t *le
         opf_dir[l] = '\0';
     }
 
-    /* 输出缓冲：先假设 EPUB 解压后文本 ≤ 16MB */
-    uint32_t cap = 4 * 1024 * 1024;
-    char *out = heap_caps_malloc(cap, MALLOC_CAP_SPIRAM);
+    /* 输出缓冲：初始 1MB，按需扩展 */
+    uint32_t cap = 1 * 1024 * 1024;
+    char *out = smart_malloc(cap);
     if (!out) { cJSON_Delete(opf); free(data); return ESP_ERR_NO_MEM; }
     uint32_t op = 0;
 
@@ -355,7 +410,7 @@ static esp_err_t parse_epub(const char *file_path, char **text_out, uint32_t *le
             /* 扩展缓冲区 */
             if (op + xhtml_len + 16 > cap) {
                 cap *= 2;
-                char *np = heap_caps_realloc(out, cap, MALLOC_CAP_SPIRAM);
+                char *np = smart_realloc(out, cap);
                 if (!np) { free(xhtml); continue; }
                 out = np;
             }
