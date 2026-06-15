@@ -1,14 +1,26 @@
 # 妙阅 E-Reader PC 仿真 Makefile
 
 CC = gcc
-CFLAGS = -Wall -Wextra -O2 -DPC_SIMULATION $(shell freetype-config --cflags)
+CFLAGS = -Wall -Wextra -O2 -DPC_SIMULATION -I. -I./shared/compat $(shell freetype-config --cflags)
 LDFLAGS = -lSDL2 $(shell freetype-config --libs)
 
 TARGET = reader_sim
-SOURCES = sim_main.c renderer_sdl.c
+
+# 源文件
+SOURCES = sim_main.c \
+          renderer_sdl.c \
+          shared/ui/page_mgr.c \
+          shared/ui/widget.c \
+          shared/ui/status_bar.c \
+          shared/ui/page_home.c \
+          shared/ui/page_bookshelf.c \
+          shared/ui/page_reader.c \
+          shared/ui/page_settings.c \
+          shared/storage/reading_progress.c
+
 OBJECTS = $(SOURCES:.c=.o)
 
-.PHONY: all clean run install-deps
+.PHONY: all clean run
 
 all: $(TARGET)
 
@@ -23,16 +35,3 @@ clean:
 
 run: $(TARGET)
 	./$(TARGET)
-
-# macOS 安装依赖
-install-deps-mac:
-	brew install sdl2
-
-# Ubuntu/Debian 安装依赖
-install-deps-linux:
-	sudo apt-get update
-	sudo apt-get install -y libsdl2-dev
-
-# Windows MSYS2 安装依赖
-install-deps-windows:
-	pacman -S mingw-w64-x86_64-SDL2
