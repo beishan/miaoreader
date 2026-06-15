@@ -127,6 +127,34 @@ int renderer_poll_events(void);
  */
 void renderer_delay(uint32_t ms);
 
+/**
+ * @brief 绘制单个字符（5x7 像素字体）
+ *
+ * @param x 起始 X 坐标
+ * @param y 起始 Y 坐标
+ * @param c 字符（ASCII 0x20-0x7E）
+ * @param color 颜色
+ */
+void renderer_draw_char(int x, int y, char c, RendererColor color);
+
+/**
+ * @brief 绘制文本字符串
+ *
+ * @param x 起始 X 坐标
+ * @param y 起始 Y 坐标
+ * @param text 文本字符串
+ * @param color 颜色
+ */
+void renderer_draw_text(int x, int y, const char *text, RendererColor color);
+
+/**
+ * @brief 测量文本宽度（像素）
+ *
+ * @param text 文本字符串
+ * @return 宽度（像素）
+ */
+int renderer_text_width(const char *text);
+
 #ifdef __cplusplus
 }
 #endif
