@@ -29,9 +29,10 @@
 
 | 项目 | 规格 |
 |------|------|
-| 芯片 | ESP32-S3（推荐 WROOM-1 模组，内置 8MB PSRAM） |
+| 芯片 | ESP32-S3 N16R8（WROOM-1 模组，16MB Flash + 8MB PSRAM） |
 | 主频 | 240MHz |
 | Flash | 16MB（内置） |
+| PSRAM | 8MB（内置） |
 | 通信 | WiFi 802.11 b/g/n / BLE 5.0 |
 | 深度睡眠电流 | < 20µA（目标） |
 

@@ -14,9 +14,9 @@
 - **存储**：SD 卡存放书籍，NVS 存配置，SPIFFS 暂未启用
 - **交互**：5 键（PWR/PREV/NEXT/HOME/自定义），全局状态栏 + 多页面状态机
 
-### 1.2 当前状态（2026-06-15）
-- **已完成**：Phase 1（HAL 层 + 引擎骨架）+ Phase 2（核心 UI + 排版引擎 + 书籍解析 + 4 个页面）
-- **未完成**：Phase 3+（休眠页、WiFi/配网/网页服务/天气/OTA）
+### 1.2 当前状态（2026-06-16）
+- **已完成**：Phase 1-4（HAL/引擎/核心 UI/排版/解析/休眠/WiFi/天气/OTA/网页服务）
+- **进行中**：Phase 5（优化与打磨）
 - **构建状态**：编译通过，固件 21.0% Flash（660KB / 3MB）、14.8% RAM（48KB / 320KB）
 
 ---
@@ -26,13 +26,13 @@
 ### 2.1 主控
 | 项目 | 规格 |
 |------|------|
-| SoC | ESP32-S3（N8R2：8MB QD Flash，无 PSRAM） |
+| SoC | ESP32-S3（N16R8：16MB Flash，8MB PSRAM） |
 | CPU | Xtensa LX7 双核 240MHz |
-| 内存 | 320KB RAM（无 PSRAM） |
-| 存储 | 8MB QD Flash（实际 3MB app 分区） |
+| 内存 | 512KB SRAM + 8MB PSRAM |
+| 存储 | 16MB QD Flash（实际 3MB app 分区） |
 | 无线 | 2.4GHz WiFi（Phase 3+） |
 
-> **注意**：硬件无 PSRAM，所有大缓冲（字模、TTF、书籍文本）必须从 Flash 读取或用 heap_caps_malloc(MALLOC_CAP_SPIRAM) 申请。Phase 2 typesetter 在无 PSRAM 时会失败，需后续调整。
+> **注意**：硬件有 8MB PSRAM，大缓冲（字模、TTF、书籍文本）可通过 `heap_caps_malloc(MALLOC_CAP_SPIRAM)` 申请到 PSRAM，不影响内部 SRAM。
 
 ### 2.2 显示器
 - **型号**：4.2 寸三色墨水屏（SSD1683 控制器）
@@ -124,7 +124,7 @@
 
 #### typesetter（FreeType 排版）
 - 集成 ESP-IDF freetype 组件（v2.14.2）
-- 字体从 SD 卡按需加载到 PSRAM（当前硬件无 PSRAM，需调整）
+- 字体从 SD 卡按需加载到 PSRAM（8MB PSRAM 充足）
 - 预分页：按字符宽度累积 + 断行
 - 渲染：单色位图 blit 到 EPD 帧缓冲
 - 3 个字体槽：思源宋体/黑体、霞鹜文楷
@@ -264,7 +264,7 @@ app_main()
 
 ### 7.2 RAM 占用
 - 静态分配：约 30KB（framebuffer 2×15KB + 配置 + 任务栈）
-- 运行时动态：typesetter 字体缓冲（无 PSRAM 时会失败，~4MB/字体）
+- 运行时动态：typesetter 字体缓冲（~4MB/字体，从 PSRAM 分配）
 
 ### 7.3 性能基准
 - EPD 全刷：~15s（三色）
@@ -329,8 +329,8 @@ ai-bookreader/
 
 ### Phase 5：优化与打磨
 - [ ] 关闭 ADC 告警（升级到 driver/adc.h）
-- [ ] PSRAM 兼容（如换 ESP32-S3N16R8 型号）
-- [ ] 完整 ZIP 支持（集成 miniz）
+- [x] PSRAM 兼容（已使用 N16R8 型号，8MB PSRAM 可用）
+- [x] 完整 ZIP 支持（已集成 miniz，支持 deflate 解压）
 - [ ] GBK→UTF-8 精确查表
 
 ---
@@ -338,10 +338,10 @@ ai-bookreader/
 ## 10. 附录
 
 ### 10.1 已知问题
-1. **无 PSRAM**：当前硬件 ESP32-S3 N8R2 无 PSRAM，typesetter 加载大字体时 `heap_caps_malloc(MALLOC_CAP_SPIRAM)` 会失败。生产环境需更换为 N16R8 型号。
+1. **~~无 PSRAM~~**：已解决。当前硬件为 ESP32-S3 N16R8，8MB PSRAM 可用。
 2. **I2C 旧版驱动**：rtc.c 使用 `driver/i2c.h`（ESP-IDF v6 EOL），需迁移到 `driver/i2c_master.h`。
-3. **page_mgr push/pop 未实现**：计划声明的栈式导航尚未实现，目前只有 switch。
-4. **EPUB deflate 不支持**：仅支持 stored（未压缩）的 EPUB 条目；多数实际 EPUB 是 deflate 压缩的，解析会失败。
+3. **~~page_mgr push/pop 未实现~~**：已解决。栈式导航已实现（push/pop/switch）。
+4. **~~EPUB deflate 不支持~~**：已解决。已集成 miniz，支持 deflate 解压。
 5. **GBK 映射精度**：汉字 Unicode 码点可能错位（视觉错误），需换 iconv。
 
 ### 10.2 参考
@@ -353,6 +353,6 @@ ai-bookreader/
 
 ---
 
-**文档版本**：v0.2.0
-**最后更新**：2026-06-15（Phase 2 完成）
+**文档版本**：v0.3.0
+**最后更新**：2026-06-16（Phase 4 完成，硬件确认为 N16R8）
 **作者**：妙阅开发团队
