@@ -45,7 +45,7 @@ static void on_render(void)
         int col = i % cols;
         int row = i / cols;
         int x = 20 + col * 120;
-        int y = 30 + row * 100;
+        int y = 30 + row * 115;
 
         /* 封面 */
         renderer_draw_rect(x, y, 100, 80, RENDERER_COLOR_BLACK);
