@@ -20,7 +20,8 @@ SOURCES = sim_main.c \
           shared/mock/mock_rtc.c \
           shared/mock/mock_weather.c \
           shared/mock/mock_books.c \
-          shared/mock/mock_wifi.c
+          shared/mock/mock_wifi.c \
+          shared/engine/book_parser.c
 
 OBJECTS = $(SOURCES:.c=.o)
 
