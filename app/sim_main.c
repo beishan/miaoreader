@@ -18,6 +18,7 @@
 #include "shared/mock/mock_weather.h"
 #include "shared/mock/mock_books.h"
 #include "shared/mock/mock_wifi.h"
+#include "shared/storage/book_storage.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -770,6 +771,7 @@ int main(int argc, char *argv[])
     /* 初始化 Mock 数据层 */
     mock_rtc_init();
     mock_weather_init();
+    book_storage_init();
     mock_books_init();
     mock_wifi_init();
 

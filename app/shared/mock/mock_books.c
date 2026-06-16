@@ -1,172 +1,158 @@
 /**
  * @file mock_books.c
- * @brief Mock 书籍模块 - 模拟书库数据
+ * @brief Mock 书籍模块 - 本地目录扫描
+ *
+ * 扫描 shared/books/ 目录，使用 book_parser 提取元数据，
+ * 集成 book_storage 加载阅读进度。
  */
 #ifdef PC_SIMULATION
 
 #include "mock_books.h"
+#include "../engine/book_parser.h"
+#include "../storage/book_storage.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
-/* Mock 书籍数据 */
-static MockBookMeta s_books[] = {
-    {
-        .id = "book_001",
-        .title = "三体",
-        .author = "刘慈欣",
-        .filePath = "/books/三体.txt",
-        .totalPages = 312,
-        .currentPage = 45,
-        .readingSeconds = 3600,
-        .isCurrentReading = true,
-    },
-    {
-        .id = "book_002",
-        .title = "百年孤独",
-        .author = "马尔克斯",
-        .filePath = "/books/百年孤独.epub",
-        .totalPages = 420,
-        .currentPage = 0,
-        .readingSeconds = 0,
-        .isCurrentReading = false,
-    },
-    {
-        .id = "book_003",
-        .title = "活着",
-        .author = "余华",
-        .filePath = "/books/活着.txt",
-        .totalPages = 180,
-        .currentPage = 180,
-        .readingSeconds = 7200,
-        .isCurrentReading = false,
-    },
-    {
-        .id = "book_004",
-        .title = "1984",
-        .author = "乔治·奥威尔",
-        .filePath = "/books/1984.txt",
-        .totalPages = 250,
-        .currentPage = 120,
-        .readingSeconds = 5400,
-        .isCurrentReading = false,
-    },
-    {
-        .id = "book_005",
-        .title = "红楼梦",
-        .author = "曹雪芹",
-        .filePath = "/books/红楼梦.txt",
-        .totalPages = 980,
-        .currentPage = 560,
-        .readingSeconds = 18000,
-        .isCurrentReading = false,
-    },
-    {
-        .id = "book_006",
-        .title = "西游记",
-        .author = "吴承恩",
-        .filePath = "/books/西游记.txt",
-        .totalPages = 860,
-        .currentPage = 230,
-        .readingSeconds = 9000,
-        .isCurrentReading = false,
-    },
-    {
-        .id = "book_007",
-        .title = "水浒传",
-        .author = "施耐庵",
-        .filePath = "/books/水浒传.txt",
-        .totalPages = 750,
-        .currentPage = 0,
-        .readingSeconds = 0,
-        .isCurrentReading = false,
-    },
-    {
-        .id = "book_008",
-        .title = "三国演义",
-        .author = "罗贯中",
-        .filePath = "/books/三国演义.txt",
-        .totalPages = 680,
-        .currentPage = 340,
-        .readingSeconds = 12000,
-        .isCurrentReading = false,
-    },
-    {
-        .id = "book_009",
-        .title = "围城",
-        .author = "钱钟书",
-        .filePath = "/books/围城.txt",
-        .totalPages = 320,
-        .currentPage = 80,
-        .readingSeconds = 4500,
-        .isCurrentReading = false,
-    },
-    {
-        .id = "book_010",
-        .title = "平凡的世界",
-        .author = "路遥",
-        .filePath = "/books/平凡的世界.txt",
-        .totalPages = 1200,
-        .currentPage = 450,
-        .readingSeconds = 15000,
-        .isCurrentReading = false,
-    },
-    {
-        .id = "book_011",
-        .title = "白鹿原",
-        .author = "陈忠实",
-        .filePath = "/books/白鹿原.txt",
-        .totalPages = 560,
-        .currentPage = 0,
-        .readingSeconds = 0,
-        .isCurrentReading = false,
-    },
-    {
-        .id = "book_012",
-        .title = "骆驼祥子",
-        .author = "老舍",
-        .filePath = "/books/骆驼祥子.txt",
-        .totalPages = 200,
-        .currentPage = 200,
-        .readingSeconds = 6000,
-        .isCurrentReading = false,
-    },
-};
+#define MAX_BOOKS       32
+#define BOOKS_DIR       "shared/books"
+#define PATH_BUFSIZE    512
 
-#define BOOK_COUNT (sizeof(s_books) / sizeof(s_books[0]))
+/* 书籍内部数据 */
+typedef struct {
+    char filename[256];         /* 文件名 */
+    char path[PATH_BUFSIZE];    /* 完整路径 */
+    char title[128];            /* 书名 */
+    char author[64];            /* 作者 */
+    int total_chars;            /* 总字符数 */
+    int current_page;           /* 当前页（从 book_storage 恢复） */
+    int estimated_pages;        /* 估算总页数 */
+    bool is_current_reading;    /* 是否正在阅读 */
+} BookEntry;
 
-/* 模拟今日阅读时间 (分钟) */
+static BookEntry s_books[MAX_BOOKS];
+static int s_book_count = 0;
+
+/* 统计模拟数据 */
 static uint32_t s_today_minutes = 38;
-
-/* 模拟累计阅读时间 (小时) */
 static uint32_t s_total_hours = 127;
+
+/* 估算页数：按每页约 500 字符估算 */
+static int estimate_pages(int total_chars)
+{
+    if (total_chars <= 0) return 1;
+    return (total_chars + 499) / 500;
+}
 
 void mock_books_init(void)
 {
-    printf("[Mock Books] 初始化，共 %d 本书\n", (int)BOOK_COUNT);
+    s_book_count = 0;
+
+    DIR *dir = opendir(BOOKS_DIR);
+    if (!dir) {
+        printf("[Mock Books] 目录 %s 不存在或无法打开\n", BOOKS_DIR);
+        return;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL && s_book_count < MAX_BOOKS) {
+        /* 跳过隐藏文件和非书籍文件 */
+        if (entry->d_name[0] == '.') continue;
+
+        /* 检查扩展名 */
+        const char *ext = strrchr(entry->d_name, '.');
+        if (!ext) continue;
+        if (strcasecmp(ext, ".txt") != 0 && strcasecmp(ext, ".epub") != 0) continue;
+
+        /* 检测格式 */
+        char full_path[PATH_BUFSIZE];
+        snprintf(full_path, sizeof(full_path), "%s/%s", BOOKS_DIR, entry->d_name);
+        BookFormat fmt = book_parser_detect(full_path);
+        if (fmt == BOOK_FMT_UNKNOWN) continue;
+
+        /* 提取元数据 */
+        BookInfo info;
+        memset(&info, 0, sizeof(info));
+        if (book_parser_extract_info(full_path, &info) != 0) {
+            printf("[Mock Books] 无法解析: %s\n", entry->d_name);
+            continue;
+        }
+
+        /* 填充 BookEntry */
+        BookEntry *book = &s_books[s_book_count];
+        memset(book, 0, sizeof(BookEntry));
+        strncpy(book->filename, entry->d_name, sizeof(book->filename) - 1);
+        strncpy(book->path, full_path, sizeof(book->path) - 1);
+        strncpy(book->title, info.title, sizeof(book->title) - 1);
+        strncpy(book->author, info.author, sizeof(book->author) - 1);
+        book->total_chars = info.total_chars;
+        book->estimated_pages = estimate_pages(info.total_chars);
+
+        /* 从 book_storage 恢复阅读进度 */
+        int saved_page = book_storage_load_progress(info.title);
+        if (saved_page >= 0) {
+            book->current_page = saved_page;
+            book->is_current_reading = true;
+        } else {
+            book->current_page = 0;
+            book->is_current_reading = false;
+        }
+
+        printf("[Mock Books] 加载: %s (作者: %s, %d字, %d页)\n",
+               book->title, book->author, book->total_chars, book->estimated_pages);
+
+        s_book_count++;
+    }
+
+    closedir(dir);
+
+    /* 如果没有正在阅读的书，标记第一本为当前阅读 */
+    bool has_reading = false;
+    for (int i = 0; i < s_book_count; i++) {
+        if (s_books[i].is_current_reading) {
+            has_reading = true;
+            break;
+        }
+    }
+    if (!has_reading && s_book_count > 0) {
+        s_books[0].is_current_reading = true;
+    }
+
+    printf("[Mock Books] 初始化完成，共 %d 本书\n", s_book_count);
 }
 
 int mock_books_get_count(void)
 {
-    return (int)BOOK_COUNT;
+    return s_book_count;
 }
 
 int mock_books_get_by_index(int index, MockBookMeta *book)
 {
-    if (index < 0 || index >= (int)BOOK_COUNT || !book) {
+    if (index < 0 || index >= s_book_count || !book) {
         return -1;
     }
-    *book = s_books[index];
+
+    BookEntry *entry = &s_books[index];
+    memset(book, 0, sizeof(MockBookMeta));
+    snprintf(book->id, sizeof(book->id), "book_%03d", index);
+    strncpy(book->title, entry->title, sizeof(book->title) - 1);
+    strncpy(book->author, entry->author, sizeof(book->author) - 1);
+    strncpy(book->filePath, entry->path, sizeof(book->filePath) - 1);
+    book->totalPages = entry->estimated_pages;
+    book->currentPage = entry->current_page;
+    book->readingSeconds = 0;
+    book->isCurrentReading = entry->is_current_reading;
+
     return 0;
 }
 
 int mock_books_get_current_reading(MockBookMeta *book)
 {
-    for (int i = 0; i < (int)BOOK_COUNT; i++) {
-        if (s_books[i].isCurrentReading) {
-            if (book) {
-                *book = s_books[i];
-            }
-            return 0;
+    for (int i = 0; i < s_book_count; i++) {
+        if (s_books[i].is_current_reading) {
+            return mock_books_get_by_index(i, book);
         }
     }
     return -1;
@@ -174,7 +160,7 @@ int mock_books_get_current_reading(MockBookMeta *book)
 
 void mock_books_get_count_str(char *buf, int size)
 {
-    snprintf(buf, size, "藏书: %d 册", (int)BOOK_COUNT);
+    snprintf(buf, size, "藏书: %d 册", s_book_count);
 }
 
 void mock_books_get_today_reading_str(char *buf, int size)
@@ -224,6 +210,32 @@ int mock_books_get_progress_percent(void)
         return (book.currentPage * 100) / book.totalPages;
     }
     return 0;
+}
+
+int mock_books_get_path(int index, char *path, int size)
+{
+    if (index < 0 || index >= s_book_count || !path || size <= 0) {
+        return -1;
+    }
+    strncpy(path, s_books[index].path, size - 1);
+    path[size - 1] = '\0';
+    return 0;
+}
+
+char *mock_books_load_text(int index)
+{
+    if (index < 0 || index >= s_book_count) {
+        return NULL;
+    }
+    return book_parser_load_text(s_books[index].path);
+}
+
+const char *mock_books_get_filename(int index)
+{
+    if (index < 0 || index >= s_book_count) {
+        return NULL;
+    }
+    return s_books[index].filename;
 }
 
 #endif /* PC_SIMULATION */

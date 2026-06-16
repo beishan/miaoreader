@@ -92,6 +92,29 @@ void mock_books_get_progress_str(char *buf, int size);
  */
 int mock_books_get_progress_percent(void);
 
+/**
+ * @brief 获取书籍文件路径
+ * @param index 索引 (0-based)
+ * @param path 输出路径缓冲区
+ * @param size 缓冲区大小
+ * @return 0 成功, -1 失败
+ */
+int mock_books_get_path(int index, char *path, int size);
+
+/**
+ * @brief 加载书籍文本（按需，调用者 free）
+ * @param index 索引 (0-based)
+ * @return malloc 分配的 UTF-8 字符串，调用者负责 free；失败返回 NULL
+ */
+char *mock_books_load_text(int index);
+
+/**
+ * @brief 获取书籍文件名（用于存储 key）
+ * @param index 索引 (0-based)
+ * @return 文件名字符串指针，失败返回 NULL
+ */
+const char *mock_books_get_filename(int index);
+
 #ifdef __cplusplus
 }
 #endif
