@@ -53,6 +53,17 @@ static char *s_book_text = NULL;        /* 加载的书籍文本 */
 static int s_book_total_pages = 0;      /* 总页数 */
 static char s_book_filename[256] = "";  /* 书籍文件名 */
 
+/* 阅读器菜单状态 */
+static bool s_menu_visible = false;
+static int  s_menu_cursor  = 0;
+static bool s_show_info    = false;
+static const char *s_menu_items[] = {
+    "\xe2\x96\xb6 \xe7\xbb\xa7\xe7\xbb\xad\xe9\x98\x85\xe8\xaf\xbb",  /* ▶ 继续阅读 */
+    "\xe2\x98\x85 \xe6\xb7\xbb\xe5\x8a\xa0\xe4\xb9\xa6\xe7\xad\xbe",  /* ★ 添加书签 */
+    "\xe2\x84\xb9 \xe4\xb9\xa6\xe7\xb1\x8d\xe4\xbf\xa1\xe6\x81\xaf",  /* ℹ 书籍信息 */
+};
+#define READER_MENU_COUNT 3
+
 /* 分页参数 */
 #define PAGE_LINES 14
 #define LINE_HEIGHT 18
@@ -243,6 +254,57 @@ static void custom_render(void)
         int hint_w = widget_text_width(page_hint);
         widget_draw_text((RENDERER_WIDTH - hint_w) / 2, RENDERER_HEIGHT - 20, page_hint, RENDERER_COLOR_BLACK);
 
+        /* ── 菜单覆盖层 ── */
+        if (s_menu_visible) {
+            int mx = 80, my = 80, mw = 240, mh = 110;
+            renderer_fill_rect(mx, my, mw, mh, RENDERER_COLOR_WHITE);
+            renderer_draw_rect(mx, my, mw, mh, RENDERER_COLOR_BLACK);
+
+            for (int i = 0; i < READER_MENU_COUNT; i++) {
+                RendererColor c = (i == s_menu_cursor)
+                                    ? RENDERER_COLOR_RED
+                                    : RENDERER_COLOR_BLACK;
+                widget_draw_text(mx + 20, my + 20 + i * 30,
+                                 s_menu_items[i], c);
+            }
+        }
+
+        /* ── 书籍信息弹窗 ── */
+        if (s_show_info) {
+            int mx = 50, my = 60, mw = 300, mh = 140;
+            renderer_fill_rect(mx, my, mw, mh, RENDERER_COLOR_WHITE);
+            renderer_draw_rect(mx, my, mw, mh, RENDERER_COLOR_BLACK);
+
+            int ty = my + 16;
+            char ibuf[64];
+
+            /* 书名 */
+            widget_draw_text(mx + 12, ty, s_book_filename, RENDERER_COLOR_BLACK);
+            ty += 22;
+
+            /* 总页数 */
+            snprintf(ibuf, sizeof(ibuf), "Total pages: %d", s_book_total_pages);
+            widget_draw_text(mx + 12, ty, ibuf, RENDERER_COLOR_BLACK);
+            ty += 18;
+
+            /* 当前页 / 百分比 */
+            int pct = (s_book_total_pages > 0)
+                        ? (s_reader_page * 100) / s_book_total_pages
+                        : 0;
+            snprintf(ibuf, sizeof(ibuf), "Current: %d/%d (%d%%)",
+                     s_reader_page + 1, s_book_total_pages, pct);
+            widget_draw_text(mx + 12, ty, ibuf, RENDERER_COLOR_BLACK);
+            ty += 18;
+
+            /* 书签数量 */
+            int bm_pages[BOOKMARK_MAX_PER_BOOK];
+            int bm_count = book_storage_get_bookmarks(s_book_filename,
+                                                       bm_pages,
+                                                       BOOKMARK_MAX_PER_BOOK);
+            snprintf(ibuf, sizeof(ibuf), "Bookmarks: %d", bm_count);
+            widget_draw_text(mx + 12, ty, ibuf, RENDERER_COLOR_BLACK);
+        }
+
     } else {
         /* 非阅读器：显示内容区域 + 菜单栏 */
         renderer_fill_rect(0, CONTENT_Y, RENDERER_WIDTH, CONTENT_H, RENDERER_COLOR_WHITE);
@@ -407,11 +469,62 @@ static void on_key(RendererKeyId key, RendererKeyEvent event)
 {
     if (event != RENDERER_KEY_EVT_SHORT) return;
 
-    /* 阅读器模式：ESC 返回书架，←/→ 翻页 */
+    /* 阅读器模式 */
     if (s_in_reader) {
+        /* 信息弹窗：任意键关闭 */
+        if (s_show_info) {
+            if (key == RENDERER_KEY_HOME || key == RENDERER_KEY_PWR) {
+                s_show_info = false;
+                custom_render();
+            }
+            return;
+        }
+        /* 菜单模式：←/→ 移动光标，HOME 确认，PWR 关闭 */
+        if (s_menu_visible) {
+            switch (key) {
+            case RENDERER_KEY_PREV:
+                if (s_menu_cursor > 0) s_menu_cursor--;
+                else                   s_menu_cursor = READER_MENU_COUNT - 1;
+                custom_render();
+                break;
+            case RENDERER_KEY_NEXT:
+                if (s_menu_cursor < READER_MENU_COUNT - 1) s_menu_cursor++;
+                else                                        s_menu_cursor = 0;
+                custom_render();
+                break;
+            case RENDERER_KEY_HOME:
+                switch (s_menu_cursor) {
+                case 0: /* 继续阅读 */
+                    s_menu_visible = false;
+                    custom_render();
+                    break;
+                case 1: /* 添加书签 */
+                    if (s_book_filename[0]) {
+                        book_storage_add_bookmark(s_book_filename, s_reader_page);
+                        book_storage_save();
+                    }
+                    s_menu_visible = false;
+                    custom_render();
+                    break;
+                case 2: /* 书籍信息 */
+                    s_menu_visible = false;
+                    s_show_info    = true;
+                    custom_render();
+                    break;
+                }
+                break;
+            case RENDERER_KEY_PWR:
+                s_menu_visible = false;
+                custom_render();
+                break;
+            default:
+                break;
+            }
+            return;
+        }
+        /* 正常阅读模式：PWR 退出，HOME 打开菜单，←/→ 翻页 */
         switch (key) {
         case RENDERER_KEY_PWR:
-        case RENDERER_KEY_HOME:
             /* 保存阅读进度 */
             if (s_book_filename[0]) {
                 book_storage_save_progress(s_book_filename, s_reader_page);
@@ -420,6 +533,10 @@ static void on_key(RendererKeyId key, RendererKeyEvent event)
             s_in_reader = false;
             s_in_bookshelf = true;
             s_current_menu = 1; /* 回到书架菜单 */
+            break;
+        case RENDERER_KEY_HOME:
+            s_menu_visible = true;
+            s_menu_cursor  = 0;
             break;
         case RENDERER_KEY_PREV:
             if (s_reader_page > 0) s_reader_page--;
@@ -465,6 +582,8 @@ static void on_key(RendererKeyId key, RendererKeyEvent event)
             /* HOME：打开选中的书 */
             load_book_text(s_selected_book);
             s_in_reader = true;
+            s_menu_visible = false;
+            s_show_info = false;
             break;
         default:
             break;
@@ -513,10 +632,10 @@ int main(int argc, char *argv[])
 
     printf("=== 妙阅 E-Reader PC 仿真 ===\n\n");
     printf("按键:\n");
-    printf("  ESC   - 退出选书模式 / 退出仿真\n");
-    printf("  LEFT  - 上一个标签 / 上一本书\n");
-    printf("  RIGHT - 下一个标签 / 下一本书\n");
-    printf("  ENTER - 确认进入书架 / 打开书籍\n\n");
+    printf("  ESC   - 退出选书模式 / 退出阅读 / 退出仿真\n");
+    printf("  LEFT  - 上一个标签 / 上一本书 / 菜单上移\n");
+    printf("  RIGHT - 下一个标签 / 下一本书 / 菜单下移\n");
+    printf("  ENTER - 确认进入书架 / 打开书籍 / 打开菜单\n\n");
 
     /* 初始化渲染器 */
     if (renderer_init("妙阅 E-Reader 仿真") != 0) {
