@@ -55,7 +55,7 @@ static int s_cursor;          /* 当前光标位置 0..SETTING_COUNT-1 */
 #define ITEM_H        18
 #define SEPARATOR_Y   (SECTION1_Y + READING_COUNT * ITEM_H + 5)
 #define SECTION2_Y    (SEPARATOR_Y + 12)
-#define HINT_Y        (RENDERER_HEIGHT - 20)
+#define HINT_Y        (RENDERER_HEIGHT - 50)
 #define LEFT_X        20
 #define VALUE_X       200
 

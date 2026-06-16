@@ -31,7 +31,7 @@ static void on_render(void)
         widget_draw_text(60, 100, "No books", RENDERER_COLOR_BLACK);
         widget_draw_text(40, 130, "Put .txt/.epub files in", RENDERER_COLOR_BLACK);
         widget_draw_text(40, 150, "shared/books/", RENDERER_COLOR_BLACK);
-        widget_draw_text(20, 280, "[PWR] Back", RENDERER_COLOR_BLACK);
+        widget_draw_text(20, 250, "[PWR] Back", RENDERER_COLOR_BLACK);
         return;
     }
 
@@ -99,10 +99,7 @@ static void on_render(void)
     /* 底部信息 */
     char info[32];
     snprintf(info, sizeof(info), "Total: %d books", s_book_count);
-    widget_draw_text(20, 260, info, RENDERER_COLOR_BLACK);
-
-    /* 操作提示 */
-    widget_draw_text(20, 280, "[HOME] Read  [PREV/NEXT] Select", RENDERER_COLOR_BLACK);
+    widget_draw_text(20, 250, info, RENDERER_COLOR_BLACK);
 }
 
 static void on_key(KeyId key, KeyEvent event)

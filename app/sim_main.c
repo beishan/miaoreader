@@ -17,6 +17,7 @@
 #include "shared/ui/page_jump.h"
 #include "shared/ui/page_sleep.h"
 #include "shared/ui/status_bar.h"
+#include "shared/ui/menu_bar.h"
 #include "shared/ui/widget.h"
 #include "shared/mock/mock_rtc.h"
 #include "shared/mock/mock_weather.h"
@@ -27,12 +28,22 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* 自定义渲染函数：委托给当前页面的 on_render */
+/* 判断当前页面是否显示菜单栏 */
+static int should_show_menu_bar(void)
+{
+    PageId cur = page_mgr_current();
+    return (cur == PAGE_HOME || cur == PAGE_BOOKSHELF || cur == PAGE_SETTINGS);
+}
+
+/* 自定义渲染函数：委托给当前页面的 on_render + 菜单栏 */
 static void custom_render(void)
 {
     const PageVtbl *page = page_mgr_get_current_vtbl();
     if (page && page->on_render) {
         page->on_render();
+    }
+    if (should_show_menu_bar()) {
+        menu_bar_render();
     }
     renderer_display();
 }
@@ -58,6 +69,12 @@ static void on_key(RendererKeyId key, RendererKeyEvent event)
     case RENDERER_KEY_EVT_SUPER_LONG: page_event = KEY_EVT_SUPER_LONG; break;
     case RENDERER_KEY_EVT_COMBO:      page_event = KEY_EVT_COMBO;      break;
     default: return;
+    }
+
+    /* 菜单栏页面优先处理 PREV/NEXT */
+    if (should_show_menu_bar() && (page_key == KEY_PREV || page_key == KEY_NEXT)) {
+        menu_bar_handle_key(page_key, page_event);
+        return;
     }
 
     /* 分发到页面状态机 */
@@ -93,6 +110,7 @@ int main(int argc, char *argv[])
     page_mgr_init();
     widget_init();
     status_bar_init();
+    menu_bar_init();
 
     /* 注册页面 */
     page_mgr_register(&page_boot_vtbl);

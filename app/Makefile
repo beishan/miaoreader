@@ -27,6 +27,7 @@ SOURCES = sim_main.c \
           shared/ui/page_menu.c \
           shared/ui/page_jump.c \
           shared/ui/page_sleep.c \
+          shared/ui/menu_bar.c \
           shared/engine/book_parser.c \
           shared/engine/typesetter.c
 

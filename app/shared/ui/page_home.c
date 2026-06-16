@@ -80,8 +80,7 @@ static void on_render(void)
     int progress = mock_books_get_progress_percent();
     renderer_fill_rect(bar_x + 2, bar_y + 2, (bar_w - 4) * progress / 100, 6, RENDERER_COLOR_BLACK);
 
-    /* 提示 */
-    widget_draw_text(120, 270, "[NEXT] 书架", RENDERER_COLOR_RED);
+    /* 底部留空给菜单栏 */
 }
 
 static void on_key(KeyId key, KeyEvent event)

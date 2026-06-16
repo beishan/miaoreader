@@ -1,17 +1,14 @@
 {
   "progress":{
-    "测试书籍.txt":{"page":4,"timestamp":1781602425},
-    "page":{"page":0,"timestamp":1781599085},
-    "timestamp":{"page":0,"timestamp":0},
-    "安徒生經典故事集：百年復古插畫新譯愛藏版 (安徒生（Hans Christian Andersen）).epub":{"page":32,"timestamp":1781602427},
-    "奇妙的盘算社团（一部帮助青少年了解金钱、认识经济、树立正确的职业观、价值观的青春成长小说。 口碑炸裂，长期荣登亚马逊经济学入门前列）... (Z-Library).epub":{"page":39,"timestamp":1781602423},
-    "如何学习 (本尼迪克特·凯里,Benedict Carey,玉冰) (Z-Library).epub":{"page":2,"timestamp":1781602419},
-    "百世求仙 (黑茄酿啤酒).epub":{"page":6,"timestamp":1781602447},
-    "混沌天帝诀-final.txt":{"page":4,"timestamp":1781602467}
+    "测试书籍.txt":{"page":4,"timestamp":1781613659},
+    "page":{"page":0,"timestamp":1781602425},
+    "timestamp":{"page":0,"timestamp":1781599085}
   },
   "bookmarks":{
     "奇妙的盘算社团（一部帮助青少年了解金钱、认识经济、树立正确的职业观、价值观的青春成长小说。 口碑炸裂，长期荣登亚马逊经济学入门前列）... (Z-Library).epub":[
       {"page":39,"timestamp":1781602406}
-    ]
+    ],
+    "page":[],
+    "timestamp":[]
   }
 }
