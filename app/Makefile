@@ -26,6 +26,7 @@ SOURCES = sim_main.c \
           shared/mock/mock_bookmark.c \
           shared/ui/page_menu.c \
           shared/ui/page_jump.c \
+          shared/ui/page_sleep.c \
           shared/engine/book_parser.c \
           shared/engine/typesetter.c
 

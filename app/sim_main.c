@@ -15,6 +15,7 @@
 #include "shared/ui/page_settings.h"
 #include "shared/ui/page_menu.h"
 #include "shared/ui/page_jump.h"
+#include "shared/ui/page_sleep.h"
 #include "shared/ui/status_bar.h"
 #include "shared/ui/widget.h"
 #include "shared/mock/mock_rtc.h"
@@ -666,6 +667,7 @@ int main(int argc, char *argv[])
     page_mgr_register(&page_settings_vtbl);
     page_mgr_register(&page_menu_vtbl);
     page_mgr_register(&page_jump_vtbl);
+    page_mgr_register(&page_sleep_vtbl);
 
     /* 设置按键回调 */
     renderer_set_key_callback(on_key);
