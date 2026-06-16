@@ -330,8 +330,10 @@ ai-bookreader/
 ### Phase 5：优化与打磨
 - [ ] 关闭 ADC 告警（升级到 driver/adc.h）
 - [x] PSRAM 兼容（已使用 N16R8 型号，8MB PSRAM 可用）
-- [x] 完整 ZIP 支持（已集成 miniz，支持 deflate 解压）
-- [ ] GBK→UTF-8 精确查表
+- [x] 完整 ZIP 支持（已集成 ESP-IDF ROM miniz，支持 deflate 解压）
+- [x] Flash 大小配置（sdkconfig 已更新为 16MB）
+- [ ] GBK→UTF-8 精确查表（需集成 iconv）
+- [ ] I2C 驱动迁移（rtc.c 从 driver/i2c.h 迁移到 driver/i2c_master.h）
 
 ---
 
@@ -341,8 +343,9 @@ ai-bookreader/
 1. **~~无 PSRAM~~**：已解决。当前硬件为 ESP32-S3 N16R8，8MB PSRAM 可用。
 2. **I2C 旧版驱动**：rtc.c 使用 `driver/i2c.h`（ESP-IDF v6 EOL），需迁移到 `driver/i2c_master.h`。
 3. **~~page_mgr push/pop 未实现~~**：已解决。栈式导航已实现（push/pop/switch）。
-4. **~~EPUB deflate 不支持~~**：已解决。已集成 miniz，支持 deflate 解压。
+4. **~~EPUB deflate 不支持~~**：已解决。已集成 ESP-IDF ROM miniz，支持 deflate 解压。
 5. **GBK 映射精度**：汉字 Unicode 码点可能错位（视觉错误），需换 iconv。
+6. **~~Flash 大小配置不一致~~**：已解决。sdkconfig 已更新为 16MB，与 platformio.ini 一致。
 
 ### 10.2 参考
 - [ESP-IDF 文档](https://docs.espressif.com/projects/esp-idf/)
@@ -353,6 +356,6 @@ ai-bookreader/
 
 ---
 
-**文档版本**：v0.3.0
-**最后更新**：2026-06-16（Phase 4 完成，硬件确认为 N16R8）
+**文档版本**：v0.3.1
+**最后更新**：2026-06-16（技术债清理：Flash 配置修复）
 **作者**：妙阅开发团队
