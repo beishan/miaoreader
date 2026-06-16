@@ -6,14 +6,19 @@
 #include "widget.h"
 #include "status_bar.h"
 #include "renderer_if.h"
+#include "../mock/mock_books.h"
 #include <stdio.h>
 
 static int s_selected = 0;
+static int s_book_count = 0;
 
 static void on_enter(void)
 {
     printf("[书架] 进入\n");
-    s_selected = 0;
+    s_book_count = mock_books_get_count();
+    if (s_selected >= s_book_count) {
+        s_selected = 0;
+    }
 }
 
 static void on_render(void)
@@ -21,10 +26,24 @@ static void on_render(void)
     renderer_clear(RENDERER_COLOR_WHITE);
     status_bar_render();
 
+    if (s_book_count == 0) {
+        widget_draw_text(60, 100, "No books", RENDERER_COLOR_BLACK);
+        widget_draw_text(40, 130, "Put .txt/.epub files in", RENDERER_COLOR_BLACK);
+        widget_draw_text(40, 150, "shared/books/", RENDERER_COLOR_BLACK);
+        widget_draw_text(20, 280, "[PWR] Back", RENDERER_COLOR_BLACK);
+        return;
+    }
+
     /* 绘制 3x2 网格 */
-    for (int i = 0; i < 6; i++) {
-        int col = i % 3;
-        int row = i / 3;
+    int cols = 3;
+    int rows = (s_book_count + cols - 1) / cols;
+    if (rows > 2) rows = 2;
+    int display_count = s_book_count;
+    if (display_count > 6) display_count = 6;
+
+    for (int i = 0; i < display_count; i++) {
+        int col = i % cols;
+        int row = i / cols;
         int x = 20 + col * 120;
         int y = 30 + row * 100;
 
@@ -41,15 +60,26 @@ static void on_render(void)
         }
 
         /* 书名 */
-        char title[16];
-        snprintf(title, sizeof(title), "Book %d", i + 1);
-        widget_draw_text(x + 20, y + 82, title, RENDERER_COLOR_BLACK);
+        MockBookMeta book;
+        if (mock_books_get_by_index(i, &book) == 0) {
+            char title[16];
+            /* 截取书名前 6 个字符 */
+            int len = 0;
+            const char *p = book.title;
+            while (*p && len < 6) {
+                title[len++] = *p++;
+            }
+            title[len] = '\0';
+            widget_draw_text(x + 10, y + 82, title, RENDERER_COLOR_BLACK);
+        }
     }
 
-    /* 翻页指示 */
-    widget_draw_text(20, 260, "1/1  Total: 6 books", RENDERER_COLOR_BLACK);
+    /* 底部信息 */
+    char info[32];
+    snprintf(info, sizeof(info), "Total: %d books", s_book_count);
+    widget_draw_text(20, 260, info, RENDERER_COLOR_BLACK);
 
-    /* 提示 */
+    /* 操作提示 */
     widget_draw_text(20, 280, "[HOME] Read  [PREV/NEXT] Select", RENDERER_COLOR_BLACK);
 }
 
@@ -62,7 +92,7 @@ static void on_key(KeyId key, KeyEvent event)
             on_render();
             break;
         case KEY_NEXT:
-            if (s_selected < 5) s_selected++;
+            if (s_selected < s_book_count - 1) s_selected++;
             on_render();
             break;
         case KEY_HOME:
