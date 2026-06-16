@@ -7,6 +7,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+// renderer 接口前置声明
+extern void renderer_set_pixel(int x, int y, int color);
+extern void renderer_fill_rect(int x, int y, int w, int h, int color);
+
 #define MAX_FONTS      4
 #define MAX_FONT_PATH  256
 #define INITIAL_PAGES  64
@@ -25,12 +29,21 @@ static TypesetterConfig s_cfg = {
     .pageHeight = 262,
 };
 
-// 从 UTF-8 解码 Unicode 码点
-static uint32_t utf8_decode(const char *s, int *bytes) {
+// 从 UTF-8 解码 Unicode 码点（带边界检查）
+static uint32_t utf8_decode(const char *s, int *bytes, int remaining) {
     unsigned char c = (unsigned char)s[0];
     if (c < 0x80) { *bytes = 1; return c; }
-    if (c < 0xE0) { *bytes = 2; return ((c & 0x1F) << 6) | (s[1] & 0x3F); }
-    if (c < 0xF0) { *bytes = 3; return ((c & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F); }
+    if (c < 0xE0) {
+        if (remaining < 2) { *bytes = 1; return 0xFFFD; }
+        *bytes = 2;
+        return ((c & 0x1F) << 6) | (s[1] & 0x3F);
+    }
+    if (c < 0xF0) {
+        if (remaining < 3) { *bytes = 1; return 0xFFFD; }
+        *bytes = 3;
+        return ((c & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F);
+    }
+    if (remaining < 4) { *bytes = 1; return 0xFFFD; }
     *bytes = 4;
     return ((c & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) | (s[3] & 0x3F);
 }
@@ -59,11 +72,26 @@ static int load_font(int fontId) {
 
 // 获取字符宽度
 static int char_width(uint32_t codepoint) {
-    if (!s_face) return s_cfg.fontSize / 2;
+    if (!s_face) {
+        // CJK 字符使用全角宽度
+        if (codepoint >= 0x4E00 && codepoint <= 0x9FFF) {
+            return s_cfg.fontSize;
+        }
+        return s_cfg.fontSize / 2;
+    }
     if (FT_Load_Char(s_face, codepoint, FT_LOAD_DEFAULT) == 0) {
         return s_face->glyph->advance.x >> 6;
     }
+    // CJK 字符使用全角宽度
+    if (codepoint >= 0x4E00 && codepoint <= 0x9FFF) {
+        return s_cfg.fontSize;
+    }
     return s_cfg.fontSize / 2;
+}
+
+// 行高（px）
+static int line_height(void) {
+    return s_cfg.fontSize * s_cfg.lineSpacing / 10;
 }
 
 int typesetter_register_font(int fontId, const char *ttfPath) {
@@ -88,7 +116,9 @@ int typesetter_init(const TypesetterConfig *cfg) {
 
     // 加载默认字体
     if (s_cfg.fontId < MAX_FONTS && s_font_paths[s_cfg.fontId][0] != '\0') {
-        load_font(s_cfg.fontId);
+        if (load_font(s_cfg.fontId) != 0) {
+            printf("[WARN][typesetter] Failed to load default font %d\n", s_cfg.fontId);
+        }
     }
 
     return 0;
@@ -101,7 +131,7 @@ int typesetter_paginate(const char *text, uint32_t textLen,
     load_font(s_cfg.fontId);
 
     int avail_w = s_cfg.pageWidth;
-    int line_h = s_cfg.fontSize * s_cfg.lineSpacing / 10;
+    int line_h = line_height();
     uint32_t lines_per_page = (uint32_t)(s_cfg.pageHeight / line_h);
     if (lines_per_page < 1) lines_per_page = 1;
 
@@ -131,7 +161,7 @@ int typesetter_paginate(const char *text, uint32_t textLen,
             uint32_t line_start = i;
             while (i < textLen && text[i] != '\n') {
                 int bytes = 1;
-                uint32_t cp = utf8_decode(text + i, &bytes);
+                uint32_t cp = utf8_decode(text + i, &bytes, textLen - i);
                 int cw = char_width(cp) + s_cfg.charSpacing;
                 if (w + cw > avail_w && i > line_start) break;
                 w += cw;
@@ -162,7 +192,7 @@ int typesetter_paginate(const char *text, uint32_t textLen,
     return 0;
 }
 
-void typesetter_render_page(const char *text, const PageIndex *page,
+void typesetter_render_page(const char *text, uint32_t textLen, const PageIndex *page,
                             uint8_t *epdBuf, int bufW, int bufH, int yOffset) {
     (void)epdBuf; // 通过 renderer_set_pixel 直接绘制，不使用 epdBuf
     if (!text || !page) return;
@@ -171,13 +201,10 @@ void typesetter_render_page(const char *text, const PageIndex *page,
 
     int x = s_cfg.margin;
     int y = yOffset + s_cfg.margin;
-    int line_h = s_cfg.fontSize * s_cfg.lineSpacing / 10;
+    int line_h = line_height();
     uint32_t i = page->startByte;
 
-    // 使用 renderer 接口绘制
-    extern void renderer_set_pixel(int x, int y, int color);
-
-    while (text[i] != '\0') {
+    while (i < textLen) {
         if (text[i] == '\n') {
             x = s_cfg.margin;
             y += line_h;
@@ -187,7 +214,7 @@ void typesetter_render_page(const char *text, const PageIndex *page,
         }
 
         int bytes = 1;
-        uint32_t cp = utf8_decode(text + i, &bytes);
+        uint32_t cp = utf8_decode(text + i, &bytes, textLen - i);
 
         if (s_face && FT_Load_Char(s_face, cp, FT_LOAD_RENDER) == 0) {
             FT_GlyphSlot glyph = s_face->glyph;
@@ -209,7 +236,6 @@ void typesetter_render_page(const char *text, const PageIndex *page,
             x += glyph->advance.x >> 6;
         } else {
             // 回退：简单矩形
-            extern void renderer_fill_rect(int x, int y, int w, int h, int color);
             renderer_fill_rect(x, y, s_cfg.fontSize / 2, s_cfg.fontSize, 0);
             x += s_cfg.fontSize / 2;
         }

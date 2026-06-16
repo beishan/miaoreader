@@ -37,7 +37,7 @@ int  typesetter_register_font(int fontId, const char *ttfPath);
 int  typesetter_init(const TypesetterConfig *cfg);
 int  typesetter_paginate(const char *text, uint32_t textLen,
                          PageIndex **pagesOut, uint32_t *pageCountOut);
-void typesetter_render_page(const char *text, const PageIndex *page,
+void typesetter_render_page(const char *text, uint32_t textLen, const PageIndex *page,
                             uint8_t *epdBuf, int bufW, int bufH, int yOffset);
 void typesetter_free_pages(PageIndex *pages);
 void typesetter_reload_config(const TypesetterConfig *cfg);
