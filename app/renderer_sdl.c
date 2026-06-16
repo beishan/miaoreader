@@ -282,7 +282,11 @@ void renderer_draw_char(int x, int y, char c, RendererColor color)
 
     /* 加载字形 */
     FT_UInt glyph_index = FT_Get_Char_Index(s_ft_face, c);
-    if (glyph_index == 0) return;
+    if (glyph_index == 0) {
+        /* 字形不存在，绘制占位矩形 */
+        renderer_fill_rect(x + 2, y + 2, 8, 12, color);
+        return;
+    }
 
     FT_Error error = FT_Load_Glyph(s_ft_face, glyph_index, FT_LOAD_DEFAULT);
     if (error) return;
@@ -403,8 +407,20 @@ void renderer_draw_text(int x, int y, const char *text, RendererColor color)
                     }
 
                     cx += glyph->advance.x >> 6;
+                } else {
+                    /* 渲染失败，绘制占位矩形 */
+                    renderer_fill_rect(cx + 2, y + 2, s_font_size, s_font_size, color);
+                    cx += s_font_size + 2;
                 }
+            } else {
+                /* 加载失败，绘制占位矩形 */
+                renderer_fill_rect(cx + 2, y + 2, s_font_size, s_font_size, color);
+                cx += s_font_size + 2;
             }
+        } else {
+            /* 字形不存在，绘制占位矩形 */
+            renderer_fill_rect(cx + 2, y + 2, s_font_size, s_font_size, color);
+            cx += s_font_size + 2;
         }
 
         p += bytes;

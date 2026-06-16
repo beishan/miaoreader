@@ -1,6 +1,6 @@
 /**
  * @file page_bookshelf.c
- * @brief 书架页：3×2 网格 + 默认封面 + 翻页 + 选中导航
+ * @brief 书架页：3×2 网格 + 封面 + 翻页 + 选中导航（匹配仿真布局）
  */
 #include "page_bookshelf.h"
 #include "ui/widget.h"
@@ -19,10 +19,13 @@ static const char *TAG = "page_bookshelf";
 
 #define GRID_COLS  3
 #define GRID_ROWS  2
-#define CELL_W     120
-#define CELL_H     130
-#define GRID_X_OFS 20
-#define GRID_Y_OFS 30
+#define CELL_W     100
+#define COVER_H    65
+#define TITLE_H    16
+#define CELL_H     (COVER_H + TITLE_H)  /* 81 */
+#define GAP_X      20
+#define GAP_Y      12
+#define FOOTER_H   20
 #define MAX_BOOKS  64
 
 static BookMeta s_books[MAX_BOOKS];
@@ -66,41 +69,47 @@ static void on_render(void)
 
     int per_page = GRID_COLS * GRID_ROWS;
     int start = s_current_page * per_page;
+    int end = start + per_page;
+    if (end > s_book_count) end = s_book_count;
 
-    for (int i = 0; i < per_page; i++) {
-        int idx = start + i;
-        if (idx >= s_book_count) break;
-        int col = i % GRID_COLS;
-        int row = i / GRID_COLS;
-        int x = GRID_X_OFS + col * CELL_W;
-        int y = GRID_Y_OFS + row * CELL_H;
+    /* 计算起始位置（居中） */
+    int avail_h = EPD_HEIGHT - 24 - FOOTER_H - 10; /* 状态栏+页码 */
+    int grid_w = GRID_COLS * CELL_W + (GRID_COLS - 1) * GAP_X;
+    int grid_h = GRID_ROWS * CELL_H + (GRID_ROWS - 1) * GAP_Y;
+    int start_x = (EPD_WIDTH - grid_w) / 2;
+    int start_y = 24 + (avail_h - grid_h) / 2;
 
-        /* 封面：白底黑框 + "书" 图标 */
-        epd_draw_rect(x, y, 100, 100, EPD_COLOR_BLACK);
-        widget_draw_icon(x + 35, y + 30, ICON_BOOK, EPD_COLOR_BLACK);
+    for (int i = start; i < end; i++) {
+        int idx = i - start;
+        int col = idx % GRID_COLS;
+        int row = idx / GRID_COLS;
+        int x = start_x + col * (CELL_W + GAP_X);
+        int y = start_y + row * (CELL_H + GAP_Y);
+        bool selected = (i == s_selected);
+        int scale = selected ? 6 : 0;
 
-        /* 选中框（红色） */
-        if (idx == s_selected) {
-            epd_draw_rect(x - 2, y - 2, 104, 104, EPD_COLOR_RED);
-        }
+        /* 封面（选中时红色放大） */
+        EpdColor cover_color = selected ? EPD_COLOR_RED : EPD_COLOR_BLACK;
+        epd_fill_rect(x + 20 - scale, y + 5 - scale, 60 + scale * 2, 45 + scale * 2, cover_color);
+        epd_fill_rect(x + 22 - scale, y + 7 - scale, 56 + scale * 2, 41 + scale * 2, EPD_COLOR_WHITE);
+        /* 书脊线条 */
+        epd_fill_rect(x + 25 - scale, y + 7 - scale, 2, 41 + scale * 2, cover_color);
 
-        /* 书名（截断：>10 字符用 ...） */
-        char title[20];
-        strncpy(title, s_books[idx].title, sizeof(title) - 1);
+        /* 书名（封面下方，居中） */
+        char title[12];
+        strncpy(title, s_books[i].title, sizeof(title) - 1);
         title[sizeof(title) - 1] = '\0';
-        if (strlen(s_books[idx].title) >= sizeof(title) - 1) {
-            title[sizeof(title) - 4] = '.';
-            title[sizeof(title) - 3] = '.';
-            title[sizeof(title) - 2] = '.';
-            title[sizeof(title) - 1] = '\0';
-        }
-        widget_draw_text(x, y + 105, title, EPD_COLOR_BLACK);
+        int tw = widget_text_width(title);
+        int text_x = x + (CELL_W - tw) / 2;
+        widget_draw_text(text_x, y + COVER_H + 2, title, selected ? EPD_COLOR_RED : EPD_COLOR_BLACK);
     }
 
-    /* 翻页指示 */
-    char info[32];
-    snprintf(info, sizeof(info), "%d/%d  共%d本", s_current_page + 1, s_total_pages, s_book_count);
-    widget_draw_text(20, EPD_HEIGHT - 14, info, EPD_COLOR_BLACK);
+    /* 页码 + 提示 */
+    char info[64];
+    snprintf(info, sizeof(info), "第 %d/%d 页  共 %d 本  [确认选书]",
+             s_current_page + 1, s_total_pages, s_book_count);
+    int iw = widget_text_width(info);
+    widget_draw_text((EPD_WIDTH - iw) / 2, EPD_HEIGHT - 18, info, EPD_COLOR_BLACK);
 }
 
 static void on_key(KeyId key, KeyEvent event)

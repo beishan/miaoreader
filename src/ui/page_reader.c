@@ -177,19 +177,11 @@ static void on_render(void)
         widget_draw_text(20, 100, "未加载书籍", EPD_COLOR_RED);
     }
 
-    /* 底部进度条 */
-    int bar_x = 120, bar_y = PROGRESS_Y, bar_w = 160;
-    int progress = s_page_count > 0
-        ? (s_current_page * 100) / (int)s_page_count
-        : 0;
-    epd_draw_rect(bar_x, bar_y, bar_w, 8, EPD_COLOR_BLACK);
-    epd_fill_rect(bar_x + 2, bar_y + 2,
-                  (bar_w - 4) * progress / 100, 4, EPD_COLOR_BLACK);
-
+    /* 底部页码（无进度条） */
     char info[32];
-    snprintf(info, sizeof(info), "%u/%u", (unsigned)(s_current_page + 1), (unsigned)s_page_count);
+    snprintf(info, sizeof(info), "< %u/%u >", (unsigned)(s_current_page + 1), (unsigned)s_page_count);
     int iw = widget_text_width(info);
-    widget_draw_text((EPD_WIDTH - iw) / 2, PROGRESS_Y + 12, info, EPD_COLOR_BLACK);
+    widget_draw_text((EPD_WIDTH - iw) / 2, EPD_HEIGHT - 18, info, EPD_COLOR_BLACK);
 
     /* 局部/全刷交替：每 5 次全刷一次 */
     if (s_partial_count >= PARTIAL_CLEAN_INTERVAL) {

@@ -16,7 +16,11 @@ SOURCES = sim_main.c \
           shared/ui/page_bookshelf.c \
           shared/ui/page_reader.c \
           shared/ui/page_settings.c \
-          shared/storage/reading_progress.c
+          shared/storage/reading_progress.c \
+          shared/mock/mock_rtc.c \
+          shared/mock/mock_weather.c \
+          shared/mock/mock_books.c \
+          shared/mock/mock_wifi.c
 
 OBJECTS = $(SOURCES:.c=.o)
 

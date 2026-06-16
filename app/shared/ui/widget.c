@@ -5,6 +5,7 @@
  * 使用 renderer_if 接口绘制文本和图标
  */
 #include "widget.h"
+#include "renderer_if.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -129,33 +130,14 @@ void widget_draw_char(int x, int y, char c, RendererColor color)
 
 void widget_draw_text(int x, int y, const char *text, RendererColor color)
 {
-    int cx = x;
-    for (const char *p = text; *p; p++) {
-        if (*p == '\n') {
-            y += 16;
-            cx = x;
-            continue;
-        }
-        widget_draw_char(cx, y, *p, color);
-        cx += 12;
-    }
+    /* 使用 FreeType 渲染（支持中文） */
+    renderer_draw_text(x, y, text, color);
 }
 
 int widget_text_width(const char *text)
 {
-    int max_width = 0;
-    int current_width = 0;
-
-    for (const char *p = text; *p; p++) {
-        if (*p == '\n') {
-            if (current_width > max_width) max_width = current_width;
-            current_width = 0;
-            continue;
-        }
-        current_width += 12;
-    }
-
-    return current_width > max_width ? current_width : max_width;
+    /* 使用 FreeType 测量（支持中文） */
+    return renderer_text_width(text);
 }
 
 void widget_draw_icon(int x, int y, uint16_t icon_id, RendererColor color)
@@ -172,12 +154,16 @@ void widget_draw_icon(int x, int y, uint16_t icon_id, RendererColor color)
         break;
 
     case ICON_WIFI_CONNECTED:
-        renderer_draw_rect(x, y, 16, 12, color);
-        renderer_fill_rect(x + 4, y + 4, 8, 4, color);
+        /* WiFi 图标：底部圆点 + 三条弧线（用矩形近似） */
+        renderer_fill_rect(x + 7, y + 10, 2, 2, color);      /* 底部圆点 */
+        renderer_fill_rect(x + 5, y + 8, 6, 2, color);       /* 第1弧 */
+        renderer_fill_rect(x + 3, y + 5, 10, 2, color);      /* 第2弧 */
+        renderer_fill_rect(x + 1, y + 2, 14, 2, color);      /* 第3弧 */
         break;
 
     case ICON_WIFI_DISCONNECTED:
-        renderer_draw_rect(x, y, 16, 12, color);
+        /* WiFi 断开：只有底部圆点 */
+        renderer_fill_rect(x + 7, y + 10, 2, 2, color);
         break;
 
     case ICON_BOOK:
