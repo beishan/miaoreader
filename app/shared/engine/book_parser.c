@@ -9,9 +9,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <zlib.h>
 #include <ctype.h>
 
-#define MAX_FILE_SIZE (10 * 1024 * 1024)  /* 10MB */
+#define MAX_FILE_SIZE (50 * 1024 * 1024)  /* 50MB */
 #define MAX_EPUB_SIZE (50 * 1024 * 1024)  /* 50MB for EPUB */
 
 /* UTF-8 BOM */
@@ -70,6 +71,7 @@ typedef struct {
 #define ZIP_SIG_CENTRAL   0x02014b50
 #define ZIP_SIG_EOCD      0x06054b50
 #define ZIP_COMP_STORED   0
+#define ZIP_COMP_DEFLATE  8
 
 /**
  * @brief 获取文件扩展名
@@ -277,16 +279,12 @@ static int zip_find_central_dir(FILE *f, long *cd_offset, int *cd_count)
 }
 
 /**
- * @brief 从 ZIP 中读取 stored（未压缩）条目数据
+ * @brief 从 ZIP 中读取条目数据（支持 stored 和 DEFLATE）
  */
-static uint8_t *zip_read_stored(FILE *f, ZipCentralDirEntry *entry, size_t *out_size)
+static uint8_t *zip_read_entry(FILE *f, ZipCentralDirEntry *entry, size_t *out_size)
 {
     ZipLocalHeader local_hdr;
     uint8_t *data;
-
-    if (entry->compression != ZIP_COMP_STORED) {
-        return NULL;  /* 只支持 stored 模式 */
-    }
 
     fseek(f, (long)entry->local_offset, SEEK_SET);
     if (fread(&local_hdr, sizeof(local_hdr), 1, f) != 1) {
@@ -305,7 +303,51 @@ static uint8_t *zip_read_stored(FILE *f, ZipCentralDirEntry *entry, size_t *out_
         return NULL;
     }
 
-    if (fread(data, 1, entry->uncompressed_size, f) != entry->uncompressed_size) {
+    if (entry->compression == ZIP_COMP_STORED) {
+        /* 未压缩，直接读取 */
+        if (fread(data, 1, entry->uncompressed_size, f) != entry->uncompressed_size) {
+            free(data);
+            return NULL;
+        }
+    } else if (entry->compression == ZIP_COMP_DEFLATE) {
+        /* DEFLATE 压缩，使用 zlib 解压 */
+        uint8_t *compressed = malloc(entry->compressed_size);
+        if (!compressed) {
+            free(data);
+            return NULL;
+        }
+
+        if (fread(compressed, 1, entry->compressed_size, f) != entry->compressed_size) {
+            free(compressed);
+            free(data);
+            return NULL;
+        }
+
+        z_stream strm;
+        memset(&strm, 0, sizeof(strm));
+        strm.next_in = compressed;
+        strm.avail_in = entry->compressed_size;
+        strm.next_out = data;
+        strm.avail_out = entry->uncompressed_size;
+
+        /* 负的 windowBits 表示原始 DEFLATE（无 zlib/gzip 头） */
+        int ret = inflateInit2(&strm, -MAX_WBITS);
+        if (ret != Z_OK) {
+            free(compressed);
+            free(data);
+            return NULL;
+        }
+
+        ret = inflate(&strm, Z_FINISH);
+        inflateEnd(&strm);
+        free(compressed);
+
+        if (ret != Z_STREAM_END) {
+            free(data);
+            return NULL;
+        }
+    } else {
+        /* 不支持的压缩方式 */
         free(data);
         return NULL;
     }
@@ -706,7 +748,7 @@ static char *epub_load_text(const char *path)
         return NULL;
     }
 
-    container_data = zip_read_stored(f, &entry, &container_size);
+    container_data = zip_read_entry(f, &entry, &container_size);
     if (!container_data) {
         fclose(f);
         return NULL;
@@ -727,7 +769,7 @@ static char *epub_load_text(const char *path)
         return NULL;
     }
 
-    opf_data = zip_read_stored(f, &entry, &opf_size);
+    opf_data = zip_read_entry(f, &entry, &opf_size);
     if (!opf_data) {
         free(opf_path);
         fclose(f);
@@ -782,7 +824,7 @@ static char *epub_load_text(const char *path)
             continue;
         }
 
-        xhtml_data = zip_read_stored(f, &entry, &xhtml_size);
+        xhtml_data = zip_read_entry(f, &entry, &xhtml_size);
         if (!xhtml_data) continue;
 
         /* 剥离 HTML 标签 */
@@ -857,7 +899,7 @@ static int epub_extract_info(const char *path, BookInfo *info)
         return -1;
     }
 
-    container_data = zip_read_stored(f, &entry, &container_size);
+    container_data = zip_read_entry(f, &entry, &container_size);
     if (!container_data) {
         fclose(f);
         return -1;
@@ -877,7 +919,7 @@ static int epub_extract_info(const char *path, BookInfo *info)
         return -1;
     }
 
-    opf_data = zip_read_stored(f, &entry, &opf_size);
+    opf_data = zip_read_entry(f, &entry, &opf_size);
     free(opf_path);
     fclose(f);
 

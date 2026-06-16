@@ -2,7 +2,7 @@
 
 CC = gcc
 CFLAGS = -Wall -Wextra -O2 -DPC_SIMULATION -I. -I./shared/compat $(shell freetype-config --cflags)
-LDFLAGS = -lSDL2 $(shell freetype-config --libs)
+LDFLAGS = -lSDL2 -lz $(shell freetype-config --libs)
 
 TARGET = reader_sim
 
