@@ -1,7 +1,7 @@
 # 妙阅 E-Reader PC 仿真 Makefile
 
 CC = gcc
-CFLAGS = -Wall -Wextra -O2 -DPC_SIMULATION -I. -I./shared/compat $(shell freetype-config --cflags)
+CFLAGS = -Wall -Wextra -O2 -DPC_SIMULATION -I. -I./shared/compat -I./shared/mock -I./shared/ui $(shell freetype-config --cflags)
 LDFLAGS = -lSDL2 -lz $(shell freetype-config --libs)
 
 TARGET = reader_sim
@@ -23,6 +23,8 @@ SOURCES = sim_main.c \
           shared/mock/mock_weather.c \
           shared/mock/mock_books.c \
           shared/mock/mock_wifi.c \
+          shared/mock/mock_bookmark.c \
+          shared/ui/page_menu.c \
           shared/engine/book_parser.c \
           shared/engine/typesetter.c
 
