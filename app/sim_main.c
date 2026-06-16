@@ -601,12 +601,29 @@ static void custom_render(void)
                 /* 书脊线条 */
                 renderer_fill_rect(x + 25 - scale, y + 7 - scale, 2, 41 + scale * 2, spine_color);
 
-                /* 书名（封面下方） */
+                /* 书名（封面下方，限制字符数避免遮挡） */
                 MockBookMeta book;
                 if (mock_books_get_by_index(i, &book) == 0) {
-                    int tw = widget_text_width(book.title);
+                    char title[32] = {0};
+                    int max_chars = 4;
+                    int char_count = 0;
+                    int byte_idx = 0;
+                    const char *src = book.title;
+                    while (*src && char_count < max_chars) {
+                        int char_len = 1;
+                        if (((unsigned char)*src & 0xE0) == 0xC0) char_len = 2;
+                        else if (((unsigned char)*src & 0xF0) == 0xE0) char_len = 3;
+                        else if (((unsigned char)*src & 0xF8) == 0xF0) char_len = 4;
+                        if (byte_idx + char_len >= (int)sizeof(title) - 4) break;
+                        for (int k = 0; k < char_len; k++) title[byte_idx++] = src[k];
+                        src += char_len;
+                        char_count++;
+                    }
+                    if (*src) { title[byte_idx++] = '.'; title[byte_idx++] = '.'; }
+                    title[byte_idx] = '\0';
+                    int tw = widget_text_width(title);
                     int text_x = x + (cell_w - tw) / 2;
-                    widget_draw_text(text_x, y + cover_h + 2, book.title, selected ? RENDERER_COLOR_RED : RENDERER_COLOR_BLACK);
+                    widget_draw_text(text_x, y + cover_h + 2, title, selected ? RENDERER_COLOR_RED : RENDERER_COLOR_BLACK);
                 }
             }
 
