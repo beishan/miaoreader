@@ -261,7 +261,8 @@ static int zip_find_central_dir(FILE *f, long *cd_offset, int *cd_count)
     }
 
     /* 从后往前搜索 EOCD 签名 */
-    for (size_t i = search_len - 22; i > 0; i--) {
+    if (search_len < 22) return -1;
+    for (long i = (long)search_len - 22; i >= 0; i--) {
         if (buf[i] == 0x50 && buf[i + 1] == 0x4B &&
             buf[i + 2] == 0x05 && buf[i + 3] == 0x06) {
             ZipEOCD eocd;
@@ -379,12 +380,13 @@ static char *strip_html(const char *html, size_t len)
 
         if (c == '<') {
             /* 检查是否为 <br>, <br/>, <p>, </p>, <div>, </div> 等块级标签 */
-            if (strncasecmp(html + i, "<br", 3) == 0 ||
-                strncasecmp(html + i, "<p>", 3) == 0 ||
-                strncasecmp(html + i, "<p ", 3) == 0 ||
-                strncasecmp(html + i, "</p>", 4) == 0 ||
-                strncasecmp(html + i, "<div", 4) == 0 ||
-                strncasecmp(html + i, "</div>", 6) == 0) {
+            size_t remaining = len - i;
+            if ((remaining >= 3 && strncasecmp(html + i, "<br", 3) == 0) ||
+                (remaining >= 3 && strncasecmp(html + i, "<p>", 3) == 0) ||
+                (remaining >= 3 && strncasecmp(html + i, "<p ", 3) == 0) ||
+                (remaining >= 4 && strncasecmp(html + i, "</p>", 4) == 0) ||
+                (remaining >= 4 && strncasecmp(html + i, "<div", 4) == 0) ||
+                (remaining >= 6 && strncasecmp(html + i, "</div>", 6) == 0)) {
                 out[oi++] = '\n';
             }
             in_tag = 1;
