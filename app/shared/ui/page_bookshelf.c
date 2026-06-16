@@ -8,6 +8,7 @@
 #include "renderer_if.h"
 #include "../mock/mock_books.h"
 #include <stdio.h>
+#include <string.h>
 
 static int s_selected = 0;
 static int s_book_count = 0;
@@ -59,18 +60,35 @@ static void on_render(void)
             renderer_draw_rect(x - 2, y - 2, 104, 84, RENDERER_COLOR_RED);
         }
 
-        /* 书名 */
+        /* 书名（按像素宽度截断，避免左右遮挡） */
         MockBookMeta book;
         if (mock_books_get_by_index(i, &book) == 0) {
-            char title[16];
-            /* 截取书名前 6 个字符 */
-            int len = 0;
-            const char *p = book.title;
-            while (*p && len < 6) {
-                title[len++] = *p++;
+            int max_w = 90;  /* 封面宽度 100px，左右各留 5px */
+            char title[128];
+            strncpy(title, book.title, sizeof(title) - 1);
+            title[sizeof(title) - 1] = '\0';
+
+            /* 逐字符截断，直到宽度超过 max_w */
+            int tw = widget_text_width(title);
+            if (tw > max_w) {
+                int len = strlen(title);
+                /* 逐步缩短，留 3 个字节给 "..." */
+                while (len > 0) {
+                    len--;
+                    /* 回退到完整的 UTF-8 字符边界 */
+                    while (len > 0 && ((unsigned char)title[len] & 0xC0) == 0x80) {
+                        len--;
+                    }
+                    title[len] = '\0';
+                    tw = widget_text_width(title);
+                    if (tw + widget_text_width("..") <= max_w) {
+                        break;
+                    }
+                }
+                strcat(title, "..");
             }
-            title[len] = '\0';
-            widget_draw_text(x + 10, y + 82, title, RENDERER_COLOR_BLACK);
+            int tx = x + (100 - widget_text_width(title)) / 2;
+            widget_draw_text(tx, y + 82, title, RENDERER_COLOR_BLACK);
         }
     }
 
