@@ -332,8 +332,9 @@ ai-bookreader/
 - [x] PSRAM 兼容（已使用 N16R8 型号，8MB PSRAM 可用）
 - [x] 完整 ZIP 支持（已集成 ESP-IDF ROM miniz，支持 deflate 解压）
 - [x] Flash 大小配置（sdkconfig 已更新为 16MB）
-- [ ] GBK→UTF-8 精确查表（需集成 iconv）
-- [ ] I2C 驱动迁移（rtc.c 从 driver/i2c.h 迁移到 driver/i2c_master.h）
+- [x] GBK→UTF-8 精确查表（已使用 23940 项全量静态映射表）
+- [x] I2C 驱动迁移（rtc.c 已使用新版 driver/i2c_master.h）
+- [x] 看门狗 + 崩溃恢复（Task WDT 30 秒超时 + NVS 崩溃恢复）
 
 ---
 
@@ -341,11 +342,12 @@ ai-bookreader/
 
 ### 10.1 已知问题
 1. **~~无 PSRAM~~**：已解决。当前硬件为 ESP32-S3 N16R8，8MB PSRAM 可用。
-2. **I2C 旧版驱动**：rtc.c 使用 `driver/i2c.h`（ESP-IDF v6 EOL），需迁移到 `driver/i2c_master.h`。
+2. **~~I2C 旧版驱动~~**：已解决。rtc.c 已使用新版 `driver/i2c_master.h` API。
 3. **~~page_mgr push/pop 未实现~~**：已解决。栈式导航已实现（push/pop/switch）。
 4. **~~EPUB deflate 不支持~~**：已解决。已集成 ESP-IDF ROM miniz，支持 deflate 解压。
-5. **GBK 映射精度**：汉字 Unicode 码点可能错位（视觉错误），需换 iconv。
+5. **~~GBK 映射精度~~**：已解决。使用 23940 项全量静态映射表（gbk_table.h），覆盖 GBK 全部码位。
 6. **~~Flash 大小配置不一致~~**：已解决。sdkconfig 已更新为 16MB，与 platformio.ini 一致。
+7. **~~看门狗 + 崩溃恢复~~**：已解决。Task WDT 已启用（30 秒超时），崩溃恢复逻辑已实现（NVS 保存书籍路径 + 定期保存进度 + 启动自动恢复）。
 
 ### 10.2 参考
 - [ESP-IDF 文档](https://docs.espressif.com/projects/esp-idf/)
@@ -356,6 +358,6 @@ ai-bookreader/
 
 ---
 
-**文档版本**：v0.3.1
-**最后更新**：2026-06-16（技术债清理：Flash 配置修复）
+**文档版本**：v0.4.0
+**最后更新**：2026-06-16（看门狗 + 崩溃恢复 + 技术债全部解决）
 **作者**：妙阅开发团队

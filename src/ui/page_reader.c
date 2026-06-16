@@ -35,6 +35,7 @@ static uint32_t s_page_count = 0;
 static uint32_t s_current_page = 0;
 static int      s_partial_count = 0;
 static char     s_current_path[256] = {0};
+static int      s_page_turn_count = 0;  /* 翻页计数，用于定期保存 */
 
 static void free_book(void)
 {
@@ -97,6 +98,77 @@ static uint32_t load_reading_progress(const char *file_path)
     return page;
 }
 
+/* 保存当前书籍路径到 NVS（用于崩溃恢复） */
+static void save_current_book_path(void)
+{
+    if (s_current_path[0] == '\0') return;
+
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open("reader_progress", NVS_READWRITE, &handle);
+    if (err != ESP_OK) return;
+
+    nvs_set_str(handle, "last_book", s_current_path);
+    nvs_commit(handle);
+    nvs_close(handle);
+
+    ESP_LOGI(TAG, "保存当前书籍: %s", s_current_path);
+}
+
+/* 从 NVS 加载上次阅读的书籍路径 */
+static bool load_last_book_path(char *buf, size_t buf_size)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open("reader_progress", NVS_READONLY, &handle);
+    if (err != ESP_OK) return false;
+
+    size_t len = buf_size;
+    err = nvs_get_str(handle, "last_book", buf, &len);
+    nvs_close(handle);
+
+    return (err == ESP_OK && buf[0] != '\0');
+}
+
+/* 定期保存进度（每 5 次翻页保存一次） */
+static void periodic_save_progress(void)
+{
+    s_page_turn_count++;
+    if (s_page_turn_count >= 5) {
+        save_reading_progress();
+        s_page_turn_count = 0;
+    }
+}
+
+/* 设置当前书籍路径（供书架调用） */
+void page_reader_set_book(const char *file_path)
+{
+    if (file_path) {
+        strncpy(s_current_path, file_path, sizeof(s_current_path) - 1);
+        s_current_path[sizeof(s_current_path) - 1] = '\0';
+    }
+}
+
+/* 尝试从 NVS 恢复上次阅读（供 main.c 启动时调用） */
+bool page_reader_try_restore(void)
+{
+    char path[256];
+    if (!load_last_book_path(path, sizeof(path))) {
+        return false;
+    }
+
+    /* 检查文件是否存在 */
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        ESP_LOGW(TAG, "上次书籍文件不存在: %s", path);
+        return false;
+    }
+    fclose(f);
+
+    ESP_LOGI(TAG, "发现上次阅读记录: %s", path);
+    strncpy(s_current_path, path, sizeof(s_current_path) - 1);
+    s_current_path[sizeof(s_current_path) - 1] = '\0';
+    return true;
+}
+
 static esp_err_t load_book(const char *file_path)
 {
     free_book();
@@ -134,6 +206,7 @@ static void on_enter(void)
 {
     ESP_LOGI(TAG, "进入阅读器");
     s_partial_count = 0;
+    s_page_turn_count = 0;
 
     /* 开始阅读计时 */
     reading_stats_start_session();
@@ -145,7 +218,23 @@ static void on_enter(void)
             s_current_page = saved_page;
             ESP_LOGI(TAG, "恢复到第 %lu 页", (unsigned long)s_current_page);
         }
+        /* 保存当前书籍路径到 NVS（用于崩溃恢复） */
+        save_current_book_path();
         return;
+    }
+
+    /* 如果有路径但未加载书籍（崩溃恢复场景） */
+    if (s_current_path[0] != '\0' && !s_book_text) {
+        if (load_book(s_current_path) == ESP_OK) {
+            uint32_t saved_page = load_reading_progress(s_current_path);
+            if (saved_page > 0 && saved_page < s_page_count) {
+                s_current_page = saved_page;
+            }
+            save_current_book_path();
+            return;
+        }
+        ESP_LOGW(TAG, "崩溃恢复失败，无法加载: %s", s_current_path);
+        s_current_path[0] = '\0';
     }
 
     /* 演示：从占位路径加载（生产环境由 page_bookshelf 注入当前书路径） */
@@ -215,17 +304,21 @@ static void on_key(KeyId key, KeyEvent event)
     if (key == KEY_PREV) {
         if (event == KEY_EVT_SHORT && s_current_page > 0) {
             s_current_page--;
+            periodic_save_progress();
             on_render();
         } else if (event == KEY_EVT_LONG && s_current_page >= 5) {
             s_current_page -= 5;
+            periodic_save_progress();
             on_render();
         }
     } else if (key == KEY_NEXT) {
         if (event == KEY_EVT_SHORT && s_current_page + 1 < s_page_count) {
             s_current_page++;
+            periodic_save_progress();
             on_render();
         } else if (event == KEY_EVT_LONG && s_current_page + 5 < s_page_count) {
             s_current_page += 5;
+            periodic_save_progress();
             on_render();
         }
     } else if (key == KEY_HOME && event == KEY_EVT_SHORT) {

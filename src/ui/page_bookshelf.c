@@ -6,6 +6,7 @@
 #include "ui/widget.h"
 #include "ui/status_bar.h"
 #include "ui/page_mgr.h"
+#include "ui/page_reader.h"
 #include "engine/types.h"
 #include "engine/config.h"
 #include "engine/book_meta.h"
@@ -148,6 +149,8 @@ static void on_key(KeyId key, KeyEvent event)
         on_render();
     } else if (key == KEY_HOME && event == KEY_EVT_SHORT) {
         if (s_book_count > 0) {
+            /* 将选中书籍路径传递给阅读器 */
+            page_reader_set_book(s_books[s_selected].filePath);
             page_mgr_switch(PAGE_READER);
         }
     }

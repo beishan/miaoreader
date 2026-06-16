@@ -1,6 +1,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 #include "nvs_flash.h"
 #include "engine/config.h"
 #include "engine/event_bus.h"
@@ -126,6 +127,16 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
+    /* Task WDT 初始化（超时 30 秒） */
+    esp_task_wdt_config_t wdt_config = {
+        .timeout_ms = 30000,
+        .idle_core_mask = 0,  /* 不监控 idle 任务 */
+        .trigger_panic = true,
+    };
+    ESP_ERROR_CHECK(esp_task_wdt_reconfigure(&wdt_config));
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));  /* 注册当前任务 (app_main) */
+    ESP_LOGI(TAG, "Task WDT 已启用（超时 30 秒）");
+
     /* 配置 + 事件总线初始化 */
     ESP_ERROR_CHECK(config_init());
     ESP_ERROR_CHECK(event_bus_init());
@@ -196,6 +207,10 @@ void app_main(void)
     /* 根据初始化状态选择页面 */
     if (!sys_cfg.initialized) {
         page_mgr_switch(PAGE_BOOT);
+    } else if (page_reader_try_restore()) {
+        /* 崩溃恢复：有上次阅读记录，直接进入阅读器 */
+        ESP_LOGI(TAG, "恢复上次阅读状态");
+        page_mgr_switch(PAGE_READER);
     } else {
         page_mgr_switch(PAGE_HOME);
     }
@@ -203,6 +218,7 @@ void app_main(void)
     ESP_LOGI(TAG, "初始化完成，进入主循环");
 
     while (1) {
+        esp_task_wdt_reset();  /* 喂狗 */
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
