@@ -12,6 +12,7 @@ SOURCES = sim_main.c \
           shared/ui/page_mgr.c \
           shared/ui/widget.c \
           shared/ui/status_bar.c \
+          shared/ui/page_boot.c \
           shared/ui/page_home.c \
           shared/ui/page_bookshelf.c \
           shared/ui/page_reader.c \

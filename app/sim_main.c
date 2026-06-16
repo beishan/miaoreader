@@ -8,6 +8,7 @@
 
 #include "renderer_if.h"
 #include "shared/ui/page_mgr.h"
+#include "shared/ui/page_boot.h"
 #include "shared/ui/page_home.h"
 #include "shared/ui/page_bookshelf.h"
 #include "shared/ui/page_reader.h"
@@ -656,6 +657,7 @@ int main(int argc, char *argv[])
     status_bar_init();
 
     /* 注册页面 */
+    page_mgr_register(&page_boot_vtbl);
     page_mgr_register(&page_home_vtbl);
     page_mgr_register(&page_bookshelf_vtbl);
     page_mgr_register(&page_reader_vtbl);
