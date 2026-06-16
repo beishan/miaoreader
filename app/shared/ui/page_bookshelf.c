@@ -60,34 +60,38 @@ static void on_render(void)
             renderer_draw_rect(x - 2, y - 2, 104, 84, RENDERER_COLOR_RED);
         }
 
-        /* 书名（按像素宽度截断，避免左右遮挡） */
+        /* 书名（限制字符数，避免左右遮挡） */
         MockBookMeta book;
         if (mock_books_get_by_index(i, &book) == 0) {
-            int max_w = 90;  /* 封面宽度 100px，左右各留 5px */
-            char title[128];
-            strncpy(title, book.title, sizeof(title) - 1);
-            title[sizeof(title) - 1] = '\0';
+            char title[32] = {0};
+            int max_chars = 4;  /* 最多 4 个字符，中文约 64px */
+            int char_count = 0;
+            int byte_idx = 0;
+            const char *src = book.title;
 
-            /* 逐字符截断，直到宽度超过 max_w */
-            int tw = widget_text_width(title);
-            if (tw > max_w) {
-                int len = strlen(title);
-                /* 逐步缩短，留 3 个字节给 "..." */
-                while (len > 0) {
-                    len--;
-                    /* 回退到完整的 UTF-8 字符边界 */
-                    while (len > 0 && ((unsigned char)title[len] & 0xC0) == 0x80) {
-                        len--;
-                    }
-                    title[len] = '\0';
-                    tw = widget_text_width(title);
-                    if (tw + widget_text_width("..") <= max_w) {
-                        break;
-                    }
+            while (*src && char_count < max_chars) {
+                int char_len = 1;
+                if (((unsigned char)*src & 0xE0) == 0xC0) char_len = 2;
+                else if (((unsigned char)*src & 0xF0) == 0xE0) char_len = 3;
+                else if (((unsigned char)*src & 0xF8) == 0xF0) char_len = 4;
+
+                if (byte_idx + char_len >= (int)sizeof(title) - 4) break;
+                for (int k = 0; k < char_len; k++) {
+                    title[byte_idx++] = src[k];
                 }
-                strcat(title, "..");
+                src += char_len;
+                char_count++;
             }
-            int tx = x + (100 - widget_text_width(title)) / 2;
+
+            /* 如果还有更多字符，加 ".." */
+            if (*src) {
+                title[byte_idx++] = '.';
+                title[byte_idx++] = '.';
+            }
+            title[byte_idx] = '\0';
+
+            int tw = widget_text_width(title);
+            int tx = x + (100 - tw) / 2;
             widget_draw_text(tx, y + 82, title, RENDERER_COLOR_BLACK);
         }
     }
