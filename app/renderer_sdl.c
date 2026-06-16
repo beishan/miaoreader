@@ -27,6 +27,10 @@ static uint8_t s_framebuffer[RENDERER_HEIGHT][RENDERER_WIDTH][3];
 /* 按键回调 */
 static renderer_key_callback_t s_key_callback = NULL;
 
+/* 长按检测状态 */
+static uint32_t s_key_down_time[RENDERER_KEY_COUNT] = {0};
+static bool s_key_is_down[RENDERER_KEY_COUNT] = {false};
+
 /* FreeType */
 static FT_Library s_ft_library = NULL;
 static FT_Face s_ft_face = NULL;
@@ -256,8 +260,26 @@ int renderer_poll_events(void)
             return 1;
         case SDL_KEYDOWN: {
             RendererKeyId key = map_sdl_key(event.key.keysym.sym);
-            if (key < RENDERER_KEY_COUNT && s_key_callback) {
-                s_key_callback(key, RENDERER_KEY_EVT_SHORT);
+            if (key < RENDERER_KEY_COUNT && !s_key_is_down[key]) {
+                s_key_is_down[key] = true;
+                s_key_down_time[key] = SDL_GetTicks();
+            }
+            break;
+        }
+        case SDL_KEYUP: {
+            RendererKeyId key = map_sdl_key(event.key.keysym.sym);
+            if (key < RENDERER_KEY_COUNT && s_key_is_down[key]) {
+                s_key_is_down[key] = false;
+                uint32_t duration = SDL_GetTicks() - s_key_down_time[key];
+                if (s_key_callback) {
+                    if (duration >= RENDERER_SUPER_LONG_MS) {
+                        s_key_callback(key, RENDERER_KEY_EVT_SUPER_LONG);
+                    } else if (duration >= RENDERER_LONG_PRESS_MS) {
+                        s_key_callback(key, RENDERER_KEY_EVT_LONG);
+                    } else {
+                        s_key_callback(key, RENDERER_KEY_EVT_SHORT);
+                    }
+                }
             }
             break;
         }

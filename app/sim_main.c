@@ -471,7 +471,26 @@ static void custom_render(void)
 /* 按键回调 */
 static void on_key(RendererKeyId key, RendererKeyEvent event)
 {
-    if (event != RENDERER_KEY_EVT_SHORT) return;
+    /* 映射 RendererKeyId → KeyId（预留，供 page_mgr_handle_key 使用） */
+    KeyId page_key;
+    switch (key) {
+    case RENDERER_KEY_PWR:  page_key = KEY_PWR;  break;
+    case RENDERER_KEY_PREV: page_key = KEY_PREV; break;
+    case RENDERER_KEY_NEXT: page_key = KEY_NEXT; break;
+    case RENDERER_KEY_HOME: page_key = KEY_HOME; break;
+    default: return;
+    }
+    (void)page_key;  /* 暂时保留映射，后续迁移到 page_mgr_handle_key 时使用 */
+
+    /* 映射 RendererKeyEvent → KeyEvent */
+    KeyEvent page_event;
+    switch (event) {
+    case RENDERER_KEY_EVT_SHORT:      page_event = KEY_EVT_SHORT;      break;
+    case RENDERER_KEY_EVT_LONG:       page_event = KEY_EVT_LONG;       break;
+    case RENDERER_KEY_EVT_SUPER_LONG: page_event = KEY_EVT_SUPER_LONG; break;
+    case RENDERER_KEY_EVT_COMBO:      page_event = KEY_EVT_COMBO;      break;
+    default: return;
+    }
 
     /* 阅读器模式 */
     if (s_in_reader) {
@@ -485,6 +504,7 @@ static void on_key(RendererKeyId key, RendererKeyEvent event)
         }
         /* 菜单模式：←/→ 移动光标，HOME 确认，PWR 关闭 */
         if (s_menu_visible) {
+            if (page_event != KEY_EVT_SHORT) return;
             switch (key) {
             case RENDERER_KEY_PREV:
                 if (s_menu_cursor > 0) s_menu_cursor--;
@@ -526,104 +546,123 @@ static void on_key(RendererKeyId key, RendererKeyEvent event)
             }
             return;
         }
-        /* 正常阅读模式：PWR 退出，HOME 打开菜单，←/→ 翻页 */
-        switch (key) {
-        case RENDERER_KEY_PWR:
-            /* 保存阅读进度 */
-            if (s_book_filename[0]) {
-                book_storage_save_progress(s_book_filename, s_reader_page);
-                book_storage_save();
+        /* 正常阅读模式 */
+        if (page_event == KEY_EVT_SHORT) {
+            /* 短按：PWR 退出，HOME 打开菜单，←/→ 翻页 */
+            switch (key) {
+            case RENDERER_KEY_PWR:
+                /* 保存阅读进度 */
+                if (s_book_filename[0]) {
+                    book_storage_save_progress(s_book_filename, s_reader_page);
+                    book_storage_save();
+                }
+                s_in_reader = false;
+                s_in_bookshelf = true;
+                s_current_menu = 1; /* 回到书架菜单 */
+                break;
+            case RENDERER_KEY_HOME:
+                s_menu_visible = true;
+                s_menu_cursor  = 0;
+                break;
+            case RENDERER_KEY_PREV:
+                if (s_reader_page > 0) s_reader_page--;
+                break;
+            case RENDERER_KEY_NEXT:
+                if (s_reader_page < s_book_total_pages - 1) s_reader_page++;
+                break;
+            default:
+                break;
             }
-            s_in_reader = false;
-            s_in_bookshelf = true;
-            s_current_menu = 1; /* 回到书架菜单 */
-            break;
-        case RENDERER_KEY_HOME:
-            s_menu_visible = true;
-            s_menu_cursor  = 0;
-            break;
-        case RENDERER_KEY_PREV:
-            if (s_reader_page > 0) s_reader_page--;
-            break;
-        case RENDERER_KEY_NEXT:
-            if (s_reader_page < s_book_total_pages - 1) s_reader_page++;
-            break;
-        default:
-            break;
+        } else if (page_event == KEY_EVT_LONG) {
+            /* 长按 ←：跳到第一页；长按 →：跳到最后一页 */
+            switch (key) {
+            case RENDERER_KEY_PREV:
+                s_reader_page = 0;
+                break;
+            case RENDERER_KEY_NEXT:
+                s_reader_page = s_book_total_pages - 1;
+                break;
+            default:
+                break;
+            }
         }
         custom_render();
         return;
     }
 
-    /* 书架选书模式：←/→ 选书，ESC 退出，HOME 打开书 */
+    /* 书架选书模式 */
     if (s_in_bookshelf) {
-        int book_count = mock_books_get_count();
-        int total_pages = (book_count + BOOKSHELF_PER_PAGE - 1) / BOOKSHELF_PER_PAGE;
-        switch (key) {
-        case RENDERER_KEY_PREV:
-            s_selected_book--;
-            if (s_selected_book < 0) {
-                s_selected_book = book_count - 1;
-                s_bookshelf_page = total_pages - 1;
-            } else if (s_selected_book < s_bookshelf_page * BOOKSHELF_PER_PAGE) {
-                s_bookshelf_page--;
+        if (page_event == KEY_EVT_SHORT) {
+            int book_count = mock_books_get_count();
+            int total_pages = (book_count + BOOKSHELF_PER_PAGE - 1) / BOOKSHELF_PER_PAGE;
+            switch (key) {
+            case RENDERER_KEY_PREV:
+                s_selected_book--;
+                if (s_selected_book < 0) {
+                    s_selected_book = book_count - 1;
+                    s_bookshelf_page = total_pages - 1;
+                } else if (s_selected_book < s_bookshelf_page * BOOKSHELF_PER_PAGE) {
+                    s_bookshelf_page--;
+                }
+                break;
+            case RENDERER_KEY_NEXT:
+                s_selected_book++;
+                if (s_selected_book >= book_count) {
+                    s_selected_book = 0;
+                    s_bookshelf_page = 0;
+                } else if (s_selected_book >= (s_bookshelf_page + 1) * BOOKSHELF_PER_PAGE) {
+                    s_bookshelf_page++;
+                }
+                break;
+            case RENDERER_KEY_PWR:
+                /* ESC：退出书架选书模式 */
+                s_in_bookshelf = false;
+                break;
+            case RENDERER_KEY_HOME:
+                /* HOME：打开选中的书 */
+                load_book_text(s_selected_book);
+                s_in_reader = true;
+                s_menu_visible = false;
+                s_show_info = false;
+                break;
+            default:
+                break;
             }
-            break;
-        case RENDERER_KEY_NEXT:
-            s_selected_book++;
-            if (s_selected_book >= book_count) {
-                s_selected_book = 0;
-                s_bookshelf_page = 0;
-            } else if (s_selected_book >= (s_bookshelf_page + 1) * BOOKSHELF_PER_PAGE) {
-                s_bookshelf_page++;
-            }
-            break;
-        case RENDERER_KEY_PWR:
-            /* ESC：退出书架选书模式 */
-            s_in_bookshelf = false;
-            break;
-        case RENDERER_KEY_HOME:
-            /* HOME：打开选中的书 */
-            load_book_text(s_selected_book);
-            s_in_reader = true;
-            s_menu_visible = false;
-            s_show_info = false;
-            break;
-        default:
-            break;
         }
         custom_render();
         return;
     }
 
-    /* 标签模式：←/→ 切换标签，HOME 确认进入 */
-    switch (key) {
-    case RENDERER_KEY_PWR:
-        break;
+    /* 标签模式 */
+    if (page_event == KEY_EVT_SHORT) {
+        switch (key) {
+        case RENDERER_KEY_PWR:
+            break;
 
-    case RENDERER_KEY_PREV:
-        s_current_menu = (s_current_menu > 0) ? s_current_menu - 1 : (int)MENU_COUNT - 1;
-        page_mgr_switch(menu_to_page[s_current_menu]);
-        break;
+        case RENDERER_KEY_PREV:
+            s_current_menu = (s_current_menu > 0) ? s_current_menu - 1 : (int)MENU_COUNT - 1;
+            page_mgr_switch(menu_to_page[s_current_menu]);
+            break;
 
-    case RENDERER_KEY_NEXT:
-        s_current_menu = (s_current_menu < (int)MENU_COUNT - 1) ? s_current_menu + 1 : 0;
-        page_mgr_switch(menu_to_page[s_current_menu]);
-        break;
+        case RENDERER_KEY_NEXT:
+            s_current_menu = (s_current_menu < (int)MENU_COUNT - 1) ? s_current_menu + 1 : 0;
+            page_mgr_switch(menu_to_page[s_current_menu]);
+            break;
 
-    case RENDERER_KEY_HOME:
-        if (menu_to_page[s_current_menu] == PAGE_BOOKSHELF) {
-            /* 进入书架选书模式 */
-            s_in_bookshelf = true;
-        } else if (menu_to_page[s_current_menu] == PAGE_HOME) {
-            /* 主页按 HOME 进入设置 */
-            s_current_menu = 2;
-            page_mgr_switch(PAGE_SETTINGS);
+        case RENDERER_KEY_HOME:
+            if (menu_to_page[s_current_menu] == PAGE_BOOKSHELF) {
+                /* 进入书架选书模式 */
+                s_in_bookshelf = true;
+            } else if (menu_to_page[s_current_menu] == PAGE_HOME) {
+                /* 主页按 HOME 进入设置 */
+                s_current_menu = 2;
+                page_mgr_switch(PAGE_SETTINGS);
+            }
+            break;
+
+        default:
+            break;
         }
-        break;
-
-    default:
-        break;
     }
 
     custom_render();

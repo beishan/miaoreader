@@ -15,6 +15,10 @@ extern "C" {
 #define RENDERER_WIDTH   400
 #define RENDERER_HEIGHT  300
 
+/* 长按时间阈值（毫秒） */
+#define RENDERER_LONG_PRESS_MS    800
+#define RENDERER_SUPER_LONG_MS    2000
+
 /* 颜色定义（兼容 EPD 三色） */
 typedef enum {
     RENDERER_COLOR_BLACK = 0,
