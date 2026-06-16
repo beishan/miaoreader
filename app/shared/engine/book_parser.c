@@ -183,6 +183,8 @@ static char *normalize_line_endings(const char *text, size_t len)
 
 BookFormat book_parser_detect(const char *path)
 {
+    if (!path) return BOOK_FMT_UNKNOWN;
+
     const char *ext = get_extension(path);
 
     if (strcasecmp(ext, "txt") == 0) {
