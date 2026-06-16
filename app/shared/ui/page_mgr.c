@@ -112,3 +112,11 @@ void page_mgr_handle_key(KeyId key, KeyEvent event)
         pages[current_page].on_key(key, event);
     }
 }
+
+const PageVtbl *page_mgr_get_current_vtbl(void)
+{
+    if (current_page >= MAX_PAGES || !pages[current_page].on_enter) {
+        return NULL;
+    }
+    return &pages[current_page];
+}

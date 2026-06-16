@@ -70,6 +70,9 @@ PageId page_mgr_current(void);
 /* 按键分发 */
 void page_mgr_handle_key(KeyId key, KeyEvent event);
 
+/* 获取当前页面虚函数表 */
+const PageVtbl *page_mgr_get_current_vtbl(void);
+
 #ifdef __cplusplus
 }
 #endif
