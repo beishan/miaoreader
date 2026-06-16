@@ -17,6 +17,7 @@ SOURCES = sim_main.c \
           shared/ui/page_reader.c \
           shared/ui/page_settings.c \
           shared/storage/reading_progress.c \
+          shared/storage/book_storage.c \
           shared/mock/mock_rtc.c \
           shared/mock/mock_weather.c \
           shared/mock/mock_books.c \
