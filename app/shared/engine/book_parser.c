@@ -6,6 +6,7 @@
 #ifdef PC_SIMULATION
 
 #include "book_parser.h"
+#include "gbk_table.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -193,9 +194,18 @@ static int gbk_to_utf8(const uint8_t *data, size_t in_len,
         } else if (c >= 0x81 && c <= 0xFE && i + 1 < in_len &&
                    data[i + 1] >= 0x40 && data[i + 1] <= 0xFE &&
                    data[i + 1] != 0x7F) {
-            /* GBK double-byte -> CJK Unicode */
-            uint32_t unicode = (uint32_t)(c - 0x81) * 191 +
-                               (uint32_t)(data[i + 1] - 0x40) + 0x4E00;
+            /* GBK double-byte -> Unicode (精确映射表) */
+            int row = c - 0x81;
+            int col = data[i + 1] - 0x40;
+            if (data[i + 1] > 0x7F) col--;
+            int idx = row * 190 + col;
+            uint32_t unicode = 0;
+            if (idx >= 0 && idx < 23940) {
+                unicode = gbk_to_unicode[idx];
+            }
+            if (unicode == 0) {
+                unicode = 0xFFFD; /* 替换字符 */
+            }
 
             if (oi + 3 >= out_size) break;
 
